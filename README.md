@@ -19,6 +19,16 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Optional AI formatting
+
+To improve formatting quality (clean bullets, better executive structure), set:
+
+- `OPENAI_API_KEY`
+- optional: `OPENAI_MODEL` (defaults to `gpt-4.1-mini`)
+
+When configured, DOCX/TXT/RTF/HTML text is polished before PDF generation while preserving meaning.
+
+
 ## API
 
 `POST /api/generate-pdf`

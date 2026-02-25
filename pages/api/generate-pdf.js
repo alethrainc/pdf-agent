@@ -11,27 +11,44 @@ function getSafeName(fileName = 'document') {
   return withoutExt.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '-') || 'document';
 }
 
-function htmlToText(html) {
-  return html
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
+function decodeXmlEntities(text) {
+  return text
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function htmlToText(html) {
+  return decodeXmlEntities(
+    html
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<li\b[^>]*>/gi, '\n• ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]+/g, ' ')
+      .trim()
+  );
 }
 
 function rtfToText(rtf) {
-  return rtf
-    .replace(/\\par[d]?/g, '\n')
-    .replace(/\\'[0-9a-fA-F]{2}/g, '')
-    .replace(/\\[a-z]+-?\d* ?/g, '')
-    .replace(/[{}]/g, '')
-    .replace(/\s+\n/g, '\n')
-    .trim();
+  return decodeXmlEntities(
+    rtf
+      .replace(/\\par[d]?/g, '\n')
+      .replace(/\\tab/g, '\t')
+      .replace(/\\'([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/\\u(-?\d+)\??/g, (_, code) => String.fromCodePoint(Number(code) < 0 ? 65536 + Number(code) : Number(code)))
+      .replace(/\\[a-z]+-?\d* ?/g, '')
+      .replace(/[{}]/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  );
 }
 
 function extractZipEntry(buffer, targetName) {
@@ -83,9 +100,7 @@ function extractZipEntry(buffer, targetName) {
       const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
       const compressedData = buffer.subarray(dataStart, dataStart + compressedSize);
 
-      if (compressionMethod === 0) {
-        return compressedData;
-      }
+      if (compressionMethod === 0) return compressedData;
       if (compressionMethod === 8) {
         const inflated = inflateRawSync(compressedData);
         if (uncompressedSize && inflated.length !== uncompressedSize) {
@@ -103,27 +118,86 @@ function extractZipEntry(buffer, targetName) {
   throw new Error('Invalid DOCX file (word/document.xml not found).');
 }
 
-function decodeXmlEntities(text) {
-  return text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
+function extractParagraphText(paragraphXml) {
+  let text = paragraphXml
+    .replace(/<w:tab\/?\s*>/g, '\t')
+    .replace(/<w:br\/?\s*>/g, '\n');
+
+  const runs = text.match(/<w:t\b[^>]*>[\s\S]*?<\/w:t>/g) || [];
+  const combined = runs
+    .map((run) => run.replace(/<w:t\b[^>]*>|<\/w:t>/g, ''))
+    .join('')
+    .trim();
+
+  return decodeXmlEntities(combined);
 }
 
 function docxToText(rawBuffer) {
   const xml = extractZipEntry(rawBuffer, 'word/document.xml').toString('utf8');
-  return decodeXmlEntities(
-    xml
-      .replace(/<w:tab\/?\s*>/g, '\t')
-      .replace(/<w:br\/?\s*>/g, '\n')
-      .replace(/<w:p\b[^>]*>/g, '\n')
-      .replace(/<w:pPr\b[\s\S]*?<\/w:pPr>/g, '')
-      .replace(/<[^>]+>/g, '')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
-  );
+  const paragraphs = xml.match(/<w:p\b[\s\S]*?<\/w:p>/g) || [];
+
+  const lines = paragraphs
+    .map((paragraph) => {
+      const isBullet = /<w:numPr\b/.test(paragraph);
+      const paragraphText = extractParagraphText(paragraph);
+      if (!paragraphText) return '';
+      return isBullet ? `• ${paragraphText}` : paragraphText;
+    })
+    .filter(Boolean);
+
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+async function formatTextWithAI(text, fileName) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey || !text) return text;
+
+  const prompt = `Reformat this extracted document text into polished executive formatting while preserving exact meaning and all symbols (including ™, ®, ©).
+
+Rules:
+- Preserve headings and hierarchy.
+- Preserve numbered lists and bullet lists.
+- Keep each bullet on its own line.
+- Do not invent facts.
+- Output plain text only (no markdown fences).
+
+File: ${fileName || 'uploaded document'}\n\n${text}`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+        input: prompt,
+        temperature: 0.2,
+      }),
+    });
+
+    if (!response.ok) return text;
+    const payload = await response.json();
+
+    const aiText = payload?.output_text?.trim();
+    return aiText || text;
+  } catch {
+    return text;
+  }
+}
+
+function sanitizeForPdfText(text) {
+  return text
+    .replace(/™/g, '(TM)')
+    .replace(/®/g, '(R)')
+    .replace(/©/g, '(C)')
+    .replace(/[•◦▪●]/g, '- ')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/—/g, '--')
+    .replace(/–/g, '-')
+    .replace(/\u00A0/g, '');
 }
 
 function escapePdfText(text) {
@@ -159,7 +233,7 @@ function textToPdfBuffer(text) {
   const lineHeight = 16;
   const maxChars = 95;
 
-  const lines = text
+  const lines = sanitizeForPdfText(text)
     .split(/\r?\n/)
     .flatMap((line) => wrapLine(line || ' ', maxChars))
     .map((line) => escapePdfText(line));
@@ -232,16 +306,30 @@ function textToPdfBuffer(text) {
   return Buffer.from(pdf, 'utf8');
 }
 
-function convertUploadedFile(uploadedFile) {
+async function convertUploadedFile(uploadedFile) {
   const rawBuffer = Buffer.from(uploadedFile.data, 'base64');
   const extension = getExtension(uploadedFile.name);
 
   if (extension === 'pdf') return rawBuffer;
-  if (extension === 'docx') return textToPdfBuffer(docxToText(rawBuffer));
-  if (extension === 'txt') return textToPdfBuffer(rawBuffer.toString('utf8'));
-  if (extension === 'rtf') return textToPdfBuffer(rtfToText(rawBuffer.toString('utf8')));
+
+  if (extension === 'docx') {
+    const text = await formatTextWithAI(docxToText(rawBuffer), uploadedFile.name);
+    return textToPdfBuffer(text);
+  }
+
+  if (extension === 'txt') {
+    const text = await formatTextWithAI(rawBuffer.toString('utf8'), uploadedFile.name);
+    return textToPdfBuffer(text);
+  }
+
+  if (extension === 'rtf') {
+    const text = await formatTextWithAI(rtfToText(rawBuffer.toString('utf8')), uploadedFile.name);
+    return textToPdfBuffer(text);
+  }
+
   if (extension === 'html' || extension === 'htm') {
-    return textToPdfBuffer(htmlToText(rawBuffer.toString('utf8')));
+    const text = await formatTextWithAI(htmlToText(rawBuffer.toString('utf8')), uploadedFile.name);
+    return textToPdfBuffer(text);
   }
 
   throw new Error('Unsupported file type. Upload PDF, DOCX, TXT, RTF, or HTML.');
@@ -267,7 +355,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const pdfBuffer = convertUploadedFile(uploadedFile);
+    const pdfBuffer = await convertUploadedFile(uploadedFile);
     const safeName = getSafeName(fileName || uploadedFile.name || 'document');
 
     res.setHeader('Content-Type', 'application/pdf');
