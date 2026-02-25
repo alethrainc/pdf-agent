@@ -1,22 +1,75 @@
 import { useState } from 'react';
 import styles from '../styles/Home.module.css';
 
+const DEFAULT_LOGO_URL = 'https://plusbrand.com/wp-content/uploads/2025/10/Copia-de-ALETHRA_Logo-scaled.png';
+const DEFAULT_FOOTER_MAIN = '© 2026 ALETHRA™. All rights reserved.';
+const DEFAULT_FOOTER_SUB = 'Confidential – Not for distribution without written authorization.';
+
+async function fileToBase64(file) {
+  const buffer = await file.arrayBuffer();
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunk = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunk) {
+    const slice = bytes.subarray(index, index + chunk);
+    binary += String.fromCharCode(...slice);
+  }
+
+  return btoa(binary);
+}
+
 export default function Home() {
-  const [source, setSource] = useState('');
   const [fileName, setFileName] = useState('');
+  const [upload, setUpload] = useState(null);
   const [status, setStatus] = useState('');
+  const [logoUrl, setLogoUrl] = useState(DEFAULT_LOGO_URL);
+  const [footerMain, setFooterMain] = useState(DEFAULT_FOOTER_MAIN);
+  const [footerSub, setFooterSub] = useState(DEFAULT_FOOTER_SUB);
   const [busy, setBusy] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+
+  function handleFileSelect(file) {
+    if (!file) return;
+
+    setUpload(file);
+    if (!fileName) {
+      const baseName = file.name.replace(/\.[^/.]+$/, '');
+      setFileName(baseName);
+    }
+    setStatus(`Selected file: ${file.name}`);
+  }
+
+  function handleDrop(event) {
+    event.preventDefault();
+    setDragActive(false);
+    const dropped = event.dataTransfer.files?.[0];
+    handleFileSelect(dropped);
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
     setStatus('');
+
+    if (!upload) {
+      setStatus('Drop or upload a file to convert.');
+      return;
+    }
+
     setBusy(true);
 
     try {
+      const base64 = await fileToBase64(upload);
+      const uploadedFile = {
+        name: upload.name,
+        mimeType: upload.type || 'application/octet-stream',
+        data: base64,
+      };
+
       const response = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source, fileName }),
+        body: JSON.stringify({ fileName, uploadedFile, logoUrl, footerMain, footerSub }),
       });
 
       if (!response.ok) {
@@ -28,7 +81,7 @@ export default function Home() {
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `${fileName || 'document'}.pdf`;
+      anchor.download = `${fileName || upload.name.replace(/\.[^/.]+$/, '') || 'document'}.pdf`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -45,22 +98,30 @@ export default function Home() {
   return (
     <main className={styles.main}>
       <section className={styles.card}>
-        <h1>Google Docs → PDF Automation</h1>
-        <p>
-          Enter a Google Doc URL (or ID) and this app exports it as a PDF using
-          Google Drive APIs.
-        </p>
+        <h1>Upload File → PDF</h1>
+        <p>Upload a file and convert it to PDF. Supported: PDF, DOCX, TXT, RTF, HTML. If OPENAI_API_KEY is set, text output is AI-polished for executive formatting. You can edit logo and footer text below.</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <label htmlFor="source">Google Doc URL or document ID</label>
+          <label htmlFor="upload">Upload a file (or drop below)</label>
           <input
-            id="source"
-            type="text"
-            value={source}
-            onChange={(event) => setSource(event.target.value)}
-            placeholder="https://docs.google.com/document/d/..."
+            id="upload"
+            type="file"
+            accept=".pdf,.docx,.txt,.rtf,.html,.htm"
+            onChange={(event) => handleFileSelect(event.target.files?.[0])}
             required
           />
+
+          <div
+            className={`${styles.dropZone} ${dragActive ? styles.dropZoneActive : ''}`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDragActive(true);
+            }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={handleDrop}
+          >
+            {upload ? `Ready to convert: ${upload.name}` : 'Drag & drop a file here'}
+          </div>
 
           <label htmlFor="fileName">Optional output file name</label>
           <input
@@ -68,7 +129,33 @@ export default function Home() {
             type="text"
             value={fileName}
             onChange={(event) => setFileName(event.target.value)}
-            placeholder="proposal-v1"
+            placeholder="document"
+          />
+
+
+          <label htmlFor="logoUrl">Logo URL (used on each page)</label>
+          <input
+            id="logoUrl"
+            type="url"
+            value={logoUrl}
+            onChange={(event) => setLogoUrl(event.target.value)}
+            placeholder="https://example.com/logo.png"
+          />
+
+          <label htmlFor="footerMain">Footer line 1</label>
+          <input
+            id="footerMain"
+            type="text"
+            value={footerMain}
+            onChange={(event) => setFooterMain(event.target.value)}
+          />
+
+          <label htmlFor="footerSub">Footer line 2</label>
+          <input
+            id="footerSub"
+            type="text"
+            value={footerSub}
+            onChange={(event) => setFooterSub(event.target.value)}
           />
 
           <button type="submit" disabled={busy}>
@@ -77,27 +164,6 @@ export default function Home() {
         </form>
 
         {status && <p className={styles.status}>{status}</p>}
-
-        <details>
-          <summary>Vercel setup checklist</summary>
-          <ol>
-            <li>Create a Google Cloud service account with Drive API enabled.</li>
-            <li>Share your Google Doc with the service account email.</li>
-            <li>
-              Add one of these environment variable options in Vercel:
-              <ul>
-                <li>
-                  <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> with full JSON content.
-                </li>
-                <li>
-                  Or split variables: <code>GOOGLE_CLIENT_EMAIL</code>,{' '}
-                  <code>GOOGLE_PRIVATE_KEY</code>, and{' '}
-                  <code>GOOGLE_PROJECT_ID</code>.
-                </li>
-              </ul>
-            </li>
-          </ol>
-        </details>
       </section>
     </main>
   );
