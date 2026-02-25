@@ -245,13 +245,14 @@ function getLineSegments(line) {
   });
 }
 
-function buildLineCommands(y, line, marginLeft) {
-  const normalSize = 11;
-  const superSize = 7;
-  const normalWidth = 6.7;
-  const superWidth = 4.6;
-  const superscriptLift = 4.2;
-  const glyphSpacing = 0.35;
+function buildLineCommands(y, line, marginLeft, options = {}) {
+  const normalSize = options.normalSize ?? 11;
+  const superSize = options.superSize ?? 7;
+  const normalWidth = options.normalWidth ?? 6.2;
+  const superWidth = options.superWidth ?? 4.1;
+  const superscriptLift = options.superscriptLift ?? 4.2;
+  const glyphSpacing = options.glyphSpacing ?? 0.2;
+  const color = options.color ?? '0.13 0.13 0.13';
 
   const segments = getLineSegments(line);
   const commands = [];
@@ -264,9 +265,52 @@ function buildLineCommands(y, line, marginLeft) {
     const fontSize = segment.superscript ? superSize : normalSize;
     const width = segment.superscript ? superWidth : normalWidth;
 
-    commands.push(`BT /F1 ${fontSize} Tf ${x.toFixed(2)} ${drawY.toFixed(2)} Td (${escapePdfText(segment.text)}) Tj ET`);
+    commands.push(`${color} rg BT /F1 ${fontSize} Tf ${x.toFixed(2)} ${drawY.toFixed(2)} Td (${escapePdfText(segment.text)}) Tj ET`);
     x += segment.text.length * width + glyphSpacing;
   }
+
+  return commands;
+}
+
+function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeight) {
+  const leftRailWidth = 22;
+  const footerY = 26;
+  const footerText = sanitizeForPdfText('© 2026 ALETHRA™. All rights reserved.');
+  const footerSubText = sanitizeForPdfText('Confidential – Not for distribution without written authorization.');
+  const pageLabel = `Page ${pageNumber} of ${totalPages}`;
+
+  const commands = [
+    'q',
+    '0.85 0.11 0.16 rg',
+    `0 0 ${leftRailWidth} ${pageHeight} re f`,
+    'Q',
+    '0.88 0.88 0.88 RG 0.6 w',
+    `0 20 m ${pageWidth} 20 l S`,
+    ...buildLineCommands(footerY + 9, footerText, 46, {
+      normalSize: 9,
+      superSize: 6,
+      normalWidth: 4.6,
+      superWidth: 3.2,
+      superscriptLift: 3.4,
+      color: '0.35 0.35 0.35',
+    }),
+    ...buildLineCommands(footerY - 8, footerSubText, 46, {
+      normalSize: 8,
+      superSize: 6,
+      normalWidth: 4.2,
+      superWidth: 3.0,
+      superscriptLift: 3.2,
+      color: '0.35 0.35 0.35',
+    }),
+    ...buildLineCommands(footerY - 8, pageLabel, pageWidth - 130, {
+      normalSize: 8,
+      superSize: 6,
+      normalWidth: 4.2,
+      superWidth: 3.0,
+      superscriptLift: 3.2,
+      color: '0.35 0.35 0.35',
+    }),
+  ];
 
   return commands;
 }
@@ -274,12 +318,12 @@ function buildLineCommands(y, line, marginLeft) {
 function textToPdfBuffer(text) {
   const pageWidth = 612;
   const pageHeight = 792;
-  const marginLeft = 50;
-  const marginTop = 50;
-  const marginBottom = 50;
-  const lineHeight = 16;
-  const paragraphGap = 10;
-  const maxChars = 72;
+  const marginLeft = 72;
+  const marginTop = 72;
+  const marginBottom = 72;
+  const lineHeight = 19;
+  const paragraphGap = 12;
+  const maxChars = 74;
 
   const content = sanitizeForPdfText(text);
   const paragraphs = content.split(/\n\n+/).map((paragraph) => paragraph.trimEnd());
@@ -314,7 +358,7 @@ function textToPdfBuffer(text) {
   }
 
   if (currentPage.length === 0) {
-    currentPage.push(`BT /F1 11 Tf ${marginLeft} ${pageHeight - marginTop} Td ( ) Tj ET`);
+    currentPage.push(`0.13 0.13 0.13 rg BT /F1 11 Tf ${marginLeft} ${pageHeight - marginTop} Td ( ) Tj ET`);
   }
 
   pages.push(currentPage);
@@ -328,9 +372,18 @@ function textToPdfBuffer(text) {
   const fontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
   const pageObjectIds = [];
 
-  for (const pageLines of pages) {
-    const stream = pageLines.join('\n');
-    const contentObjectId = addObject(`<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream`);
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+    const pageLines = pages[pageIndex];
+    const decorated = [
+      ...buildPageDecorationCommands(pageIndex + 1, pages.length, pageWidth, pageHeight),
+      ...pageLines,
+    ];
+
+    const stream = decorated.join('\n');
+    const contentObjectId = addObject(`<< /Length ${Buffer.byteLength(stream, 'utf8')} >>
+stream
+${stream}
+endstream`);
     const pageObjectId = addObject(
       `<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>`
     );
