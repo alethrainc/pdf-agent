@@ -1,41 +1,155 @@
-import { getDriveClient } from '../../lib/google';
+const SUPPORTED_EXTENSIONS = new Set(['pdf', 'txt', 'rtf', 'html', 'htm']);
 
-const CONVERTIBLE_MIME_TYPES = new Set([
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.oasis.opendocument.text',
-  'application/rtf',
-  'text/rtf',
-  'text/plain',
-  'text/html',
-]);
-
-function getDocId(input) {
-  if (!input) return null;
-
-  const trimmed = input.trim();
-  const docsMatch = trimmed.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
-  if (docsMatch?.[1]) return docsMatch[1];
-
-  return trimmed;
+function getExtension(fileName = '') {
+  return fileName.split('.').pop()?.toLowerCase() || '';
 }
 
-function normalizeMimeType(name, mimeType) {
-  if (mimeType && CONVERTIBLE_MIME_TYPES.has(mimeType)) {
-    return mimeType;
+function getSafeName(fileName = 'document') {
+  const withoutExt = fileName.replace(/\.[^/.]+$/, '');
+  return withoutExt.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '-') || 'document';
+}
+
+function htmlToText(html) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function rtfToText(rtf) {
+  return rtf
+    .replace(/\\par[d]?/g, '\n')
+    .replace(/\\'[0-9a-fA-F]{2}/g, '')
+    .replace(/\\[a-z]+-?\d* ?/g, '')
+    .replace(/[{}]/g, '')
+    .replace(/\s+\n/g, '\n')
+    .trim();
+}
+
+function escapePdfText(text) {
+  return text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
+function wrapLine(line, maxChars) {
+  if (line.length <= maxChars) return [line];
+
+  const words = line.split(/\s+/);
+  const lines = [];
+  let current = '';
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length > maxChars) {
+      if (current) lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
   }
 
-  const lowered = (name || '').toLowerCase();
-  if (lowered.endsWith('.doc')) return 'application/msword';
-  if (lowered.endsWith('.docx')) {
-    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  }
-  if (lowered.endsWith('.odt')) return 'application/vnd.oasis.opendocument.text';
-  if (lowered.endsWith('.rtf')) return 'application/rtf';
-  if (lowered.endsWith('.txt')) return 'text/plain';
-  if (lowered.endsWith('.html') || lowered.endsWith('.htm')) return 'text/html';
+  if (current) lines.push(current);
+  return lines;
+}
 
-  return null;
+function textToPdfBuffer(text) {
+  const pageWidth = 612;
+  const pageHeight = 792;
+  const marginLeft = 50;
+  const marginTop = 50;
+  const lineHeight = 16;
+  const maxChars = 95;
+
+  const lines = text
+    .split(/\r?\n/)
+    .flatMap((line) => wrapLine(line || ' ', maxChars))
+    .map((line) => escapePdfText(line));
+
+  const pages = [];
+  let currentPage = [];
+  let y = pageHeight - marginTop;
+
+  for (const line of lines) {
+    if (y < 50) {
+      pages.push(currentPage);
+      currentPage = [];
+      y = pageHeight - marginTop;
+    }
+
+    currentPage.push(`BT /F1 11 Tf ${marginLeft} ${y} Td (${line}) Tj ET`);
+    y -= lineHeight;
+  }
+
+  if (currentPage.length === 0) {
+    currentPage.push(`BT /F1 11 Tf ${marginLeft} ${pageHeight - marginTop} Td ( ) Tj ET`);
+  }
+  pages.push(currentPage);
+
+  const objects = [];
+  const addObject = (content) => {
+    objects.push(content);
+    return objects.length;
+  };
+
+  const fontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  const pageObjectIds = [];
+
+  for (const pageLines of pages) {
+    const stream = pageLines.join('\n');
+    const contentObjectId = addObject(`<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream`);
+    const pageObjectId = addObject(
+      `<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>`
+    );
+    pageObjectIds.push(pageObjectId);
+  }
+
+  const pagesObjectId = addObject(
+    `<< /Type /Pages /Count ${pageObjectIds.length} /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(' ')}] >>`
+  );
+
+  for (const pageObjectId of pageObjectIds) {
+    objects[pageObjectId - 1] = objects[pageObjectId - 1].replace('/Parent 0 0 R', `/Parent ${pagesObjectId} 0 R`);
+  }
+
+  const catalogObjectId = addObject(`<< /Type /Catalog /Pages ${pagesObjectId} 0 R >>`);
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+
+  for (let i = 0; i < objects.length; i += 1) {
+    offsets.push(Buffer.byteLength(pdf, 'utf8'));
+    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+
+  const xrefStart = Buffer.byteLength(pdf, 'utf8');
+  pdf += `xref\n0 ${objects.length + 1}\n`;
+  pdf += '0000000000 65535 f \n';
+
+  for (let i = 1; i <= objects.length; i += 1) {
+    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  }
+
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogObjectId} 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  return Buffer.from(pdf, 'utf8');
+}
+
+function convertUploadedFile(uploadedFile) {
+  const rawBuffer = Buffer.from(uploadedFile.data, 'base64');
+  const extension = getExtension(uploadedFile.name);
+
+  if (extension === 'pdf') return rawBuffer;
+  if (extension === 'txt') return textToPdfBuffer(rawBuffer.toString('utf8'));
+  if (extension === 'rtf') return textToPdfBuffer(rtfToText(rawBuffer.toString('utf8')));
+  if (extension === 'html' || extension === 'htm') {
+    return textToPdfBuffer(htmlToText(rawBuffer.toString('utf8')));
+  }
+
+  throw new Error('Unsupported file type. Upload PDF, TXT, RTF, or HTML.');
 }
 
 export default async function handler(req, res) {
@@ -44,90 +158,28 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { source, fileName, uploadedFile } = req.body || {};
-  let docId = getDocId(source);
-  let uploadedDocId = null;
+  const { fileName, uploadedFile } = req.body || {};
 
-  if (!docId && !uploadedFile) {
+  if (!uploadedFile?.name || !uploadedFile?.data) {
+    return res.status(400).json({ error: 'Please upload a file to convert.' });
+  }
+
+  const extension = getExtension(uploadedFile.name);
+  if (!SUPPORTED_EXTENSIONS.has(extension)) {
     return res.status(400).json({
-      error: 'Please provide a Google Doc URL/ID or upload a supported file.',
+      error: 'Unsupported file type. Upload PDF, TXT, RTF, or HTML.',
     });
   }
 
   try {
-    const drive = getDriveClient();
-
-    if (!docId && uploadedFile) {
-      const mimeType = normalizeMimeType(uploadedFile.name, uploadedFile.mimeType);
-      if (!mimeType) {
-        return res.status(400).json({
-          error:
-            'Unsupported uploaded file type. Use DOC, DOCX, ODT, RTF, TXT, or HTML.',
-        });
-      }
-
-      const uploadResponse = await drive.files.create({
-        requestBody: {
-          name: uploadedFile.name || 'uploaded-document',
-          mimeType: 'application/vnd.google-apps.document',
-        },
-        media: {
-          mimeType,
-          body: Buffer.from(uploadedFile.data, 'base64'),
-        },
-        fields: 'id',
-      });
-
-      uploadedDocId = uploadResponse.data.id;
-      docId = uploadedDocId;
-    }
-
-    const metadata = await drive.files.get({
-      fileId: docId,
-      fields: 'id,name,mimeType',
-    });
-
-    if (metadata.data.mimeType !== 'application/vnd.google-apps.document') {
-      return res.status(400).json({
-        error: 'The provided file is not a Google Docs document.',
-      });
-    }
-
-    const exportResponse = await drive.files.export(
-      {
-        fileId: docId,
-        mimeType: 'application/pdf',
-      },
-      { responseType: 'arraybuffer' }
-    );
-
-    const safeName = (fileName || metadata.data.name || 'document')
-      .replace(/[^a-zA-Z0-9-_ ]/g, '')
-      .trim()
-      .replace(/\s+/g, '-');
+    const pdfBuffer = convertUploadedFile(uploadedFile);
+    const safeName = getSafeName(fileName || uploadedFile.name || 'document');
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${safeName || 'document'}.pdf"`
-    );
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}.pdf"`);
 
-    return res.status(200).send(Buffer.from(exportResponse.data));
+    return res.status(200).send(pdfBuffer);
   } catch (error) {
-    const message =
-      error?.response?.data?.error?.message ||
-      error?.message ||
-      'Unable to generate PDF.';
-
-    return res.status(500).json({ error: message });
-  } finally {
-    if (uploadedDocId) {
-      try {
-        const drive = getDriveClient();
-        await drive.files.delete({ fileId: uploadedDocId });
-      } catch {
-        // Ignore cleanup errors.
-      }
-    }
+    return res.status(500).json({ error: error?.message || 'Unable to generate PDF.' });
   }
 }

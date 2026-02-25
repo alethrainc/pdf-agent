@@ -16,7 +16,6 @@ async function fileToBase64(file) {
 }
 
 export default function Home() {
-  const [source, setSource] = useState('');
   const [fileName, setFileName] = useState('');
   const [upload, setUpload] = useState(null);
   const [status, setStatus] = useState('');
@@ -45,29 +44,25 @@ export default function Home() {
     event.preventDefault();
     setStatus('');
 
-    if (!source.trim() && !upload) {
-      setStatus('Provide a Google Doc URL/ID or drop/upload a file to convert.');
+    if (!upload) {
+      setStatus('Drop or upload a file to convert.');
       return;
     }
 
     setBusy(true);
 
     try {
-      let uploadedFile = null;
-
-      if (upload) {
-        const base64 = await fileToBase64(upload);
-        uploadedFile = {
-          name: upload.name,
-          mimeType: upload.type || 'application/octet-stream',
-          data: base64,
-        };
-      }
+      const base64 = await fileToBase64(upload);
+      const uploadedFile = {
+        name: upload.name,
+        mimeType: upload.type || 'application/octet-stream',
+        data: base64,
+      };
 
       const response = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source, fileName, uploadedFile }),
+        body: JSON.stringify({ fileName, uploadedFile }),
       });
 
       if (!response.ok) {
@@ -79,7 +74,7 @@ export default function Home() {
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `${fileName || upload?.name?.replace(/\.[^/.]+$/, '') || 'document'}.pdf`;
+      anchor.download = `${fileName || upload.name.replace(/\.[^/.]+$/, '') || 'document'}.pdf`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -96,28 +91,17 @@ export default function Home() {
   return (
     <main className={styles.main}>
       <section className={styles.card}>
-        <h1>Google Docs / File → PDF Automation</h1>
-        <p>
-          Paste a Google Doc URL or ID, or drag-and-drop a supported file (DOCX,
-          ODT, RTF, TXT, HTML) to convert it to PDF.
-        </p>
+        <h1>Upload File → PDF</h1>
+        <p>Upload a file and convert it to PDF. Supported: PDF, TXT, RTF, HTML.</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <label htmlFor="source">Google Doc URL or document ID (optional if uploading)</label>
-          <input
-            id="source"
-            type="text"
-            value={source}
-            onChange={(event) => setSource(event.target.value)}
-            placeholder="https://docs.google.com/document/d/..."
-          />
-
           <label htmlFor="upload">Upload a file (or drop below)</label>
           <input
             id="upload"
             type="file"
-            accept=".doc,.docx,.odt,.rtf,.txt,.html,.htm"
+            accept=".pdf,.txt,.rtf,.html,.htm"
             onChange={(event) => handleFileSelect(event.target.files?.[0])}
+            required
           />
 
           <div
@@ -129,9 +113,7 @@ export default function Home() {
             onDragLeave={() => setDragActive(false)}
             onDrop={handleDrop}
           >
-            {upload
-              ? `Ready to convert: ${upload.name}`
-              : 'Drag & drop a document file here'}
+            {upload ? `Ready to convert: ${upload.name}` : 'Drag & drop a file here'}
           </div>
 
           <label htmlFor="fileName">Optional output file name</label>
@@ -140,7 +122,7 @@ export default function Home() {
             type="text"
             value={fileName}
             onChange={(event) => setFileName(event.target.value)}
-            placeholder="proposal-v1"
+            placeholder="document"
           />
 
           <button type="submit" disabled={busy}>
@@ -149,27 +131,6 @@ export default function Home() {
         </form>
 
         {status && <p className={styles.status}>{status}</p>}
-
-        <details>
-          <summary>Vercel setup checklist</summary>
-          <ol>
-            <li>Create a Google Cloud service account with Drive API enabled.</li>
-            <li>Share your Google Doc with the service account email.</li>
-            <li>
-              Add one of these environment variable options in Vercel:
-              <ul>
-                <li>
-                  <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> with full JSON content.
-                </li>
-                <li>
-                  Or split variables: <code>GOOGLE_CLIENT_EMAIL</code>,{' '}
-                  <code>GOOGLE_PRIVATE_KEY</code>, and{' '}
-                  <code>GOOGLE_PROJECT_ID</code>.
-                </li>
-              </ul>
-            </li>
-          </ol>
-        </details>
       </section>
     </main>
   );
