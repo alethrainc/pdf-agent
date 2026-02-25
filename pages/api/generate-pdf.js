@@ -248,9 +248,10 @@ function getLineSegments(line) {
 function buildLineCommands(y, line, marginLeft) {
   const normalSize = 11;
   const superSize = 7;
-  const normalWidth = 5.4;
-  const superWidth = 3.6;
+  const normalWidth = 6.7;
+  const superWidth = 4.6;
   const superscriptLift = 4.2;
+  const glyphSpacing = 0.35;
 
   const segments = getLineSegments(line);
   const commands = [];
@@ -264,7 +265,7 @@ function buildLineCommands(y, line, marginLeft) {
     const width = segment.superscript ? superWidth : normalWidth;
 
     commands.push(`BT /F1 ${fontSize} Tf ${x.toFixed(2)} ${drawY.toFixed(2)} Td (${escapePdfText(segment.text)}) Tj ET`);
-    x += segment.text.length * width;
+    x += segment.text.length * width + glyphSpacing;
   }
 
   return commands;
@@ -278,10 +279,10 @@ function textToPdfBuffer(text) {
   const marginBottom = 50;
   const lineHeight = 16;
   const paragraphGap = 10;
-  const maxChars = 95;
+  const maxChars = 72;
 
   const content = sanitizeForPdfText(text);
-  const paragraphs = content.split(/\n\n+/).map((paragraph) => paragraph.trim());
+  const paragraphs = content.split(/\n\n+/).map((paragraph) => paragraph.trimEnd());
 
   const pages = [];
   let currentPage = [];
@@ -293,7 +294,8 @@ function textToPdfBuffer(text) {
     y = pageHeight - marginTop;
   };
 
-  for (const paragraph of paragraphs) {
+  for (let paragraphIndex = 0; paragraphIndex < paragraphs.length; paragraphIndex += 1) {
+    const paragraph = paragraphs[paragraphIndex];
     const paragraphLines = (paragraph || ' ').split(/\r?\n/);
 
     for (const paragraphLine of paragraphLines) {
@@ -306,7 +308,9 @@ function textToPdfBuffer(text) {
       }
     }
 
-    y -= paragraphGap;
+    if (paragraphIndex < paragraphs.length - 1) {
+      y -= paragraphGap;
+    }
   }
 
   if (currentPage.length === 0) {
