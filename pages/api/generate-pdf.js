@@ -1,6 +1,9 @@
 import { inflateRawSync } from 'zlib';
 
 const SUPPORTED_EXTENSIONS = new Set(['pdf', 'docx', 'txt', 'rtf', 'html', 'htm']);
+const SUPER_TM = '<<SUPER_TM>>';
+const SUPER_R = '<<SUPER_R>>';
+const SUPER_C = '<<SUPER_C>>';
 
 function getExtension(fileName = '') {
   return fileName.split('.').pop()?.toLowerCase() || '';
@@ -29,10 +32,10 @@ function htmlToText(html) {
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<li\b[^>]*>/gi, '\n• ')
       .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
       .replace(/<[^>]+>/g, ' ')
-      .replace(/\n{3,}/g, '\n\n')
       .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
       .trim()
   );
 }
@@ -40,7 +43,7 @@ function htmlToText(html) {
 function rtfToText(rtf) {
   return decodeXmlEntities(
     rtf
-      .replace(/\\par[d]?/g, '\n')
+      .replace(/\\par[d]?/g, '\n\n')
       .replace(/\\tab/g, '\t')
       .replace(/\\'([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
       .replace(/\\u(-?\d+)\??/g, (_, code) => String.fromCodePoint(Number(code) < 0 ? 65536 + Number(code) : Number(code)))
@@ -119,11 +122,7 @@ function extractZipEntry(buffer, targetName) {
 }
 
 function extractParagraphText(paragraphXml) {
-  let text = paragraphXml
-    .replace(/<w:tab\/?\s*>/g, '\t')
-    .replace(/<w:br\/?\s*>/g, '\n');
-
-  const runs = text.match(/<w:t\b[^>]*>[\s\S]*?<\/w:t>/g) || [];
+  const runs = paragraphXml.match(/<w:t\b[^>]*>[\s\S]*?<\/w:t>/g) || [];
   const combined = runs
     .map((run) => run.replace(/<w:t\b[^>]*>|<\/w:t>/g, ''))
     .join('')
@@ -145,7 +144,7 @@ function docxToText(rawBuffer) {
     })
     .filter(Boolean);
 
-  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return lines.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 async function formatTextWithAI(text, fileName) {
@@ -158,6 +157,7 @@ Rules:
 - Preserve headings and hierarchy.
 - Preserve numbered lists and bullet lists.
 - Keep each bullet on its own line.
+- Keep paragraph spacing clear (empty line between paragraphs where appropriate).
 - Do not invent facts.
 - Output plain text only (no markdown fences).
 
@@ -189,23 +189,31 @@ File: ${fileName || 'uploaded document'}\n\n${text}`;
 
 function sanitizeForPdfText(text) {
   return text
-    .replace(/™/g, '(TM)')
-    .replace(/®/g, '(R)')
-    .replace(/©/g, '(C)')
+    .replace(/™/g, SUPER_TM)
+    .replace(/®/g, SUPER_R)
+    .replace(/©/g, SUPER_C)
     .replace(/[•◦▪●]/g, '- ')
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     .replace(/—/g, '--')
     .replace(/–/g, '-')
-    .replace(/\u00A0/g, '');
+    .replace(/\u00A0/g, ' ')
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 function escapePdfText(text) {
   return text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
 
+function visibleLength(text) {
+  return text
+    .replaceAll(SUPER_TM, 'TM')
+    .replaceAll(SUPER_R, 'R')
+    .replaceAll(SUPER_C, 'C').length;
+}
+
 function wrapLine(line, maxChars) {
-  if (line.length <= maxChars) return [line];
+  if (visibleLength(line) <= maxChars) return [line];
 
   const words = line.split(/\s+/);
   const lines = [];
@@ -213,7 +221,7 @@ function wrapLine(line, maxChars) {
 
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length > maxChars) {
+    if (visibleLength(candidate) > maxChars) {
       if (current) lines.push(current);
       current = word;
     } else {
@@ -225,42 +233,91 @@ function wrapLine(line, maxChars) {
   return lines;
 }
 
+function getLineSegments(line) {
+  const markerRegex = new RegExp(`(${SUPER_TM}|${SUPER_R}|${SUPER_C})`, 'g');
+  const chunks = line.split(markerRegex).filter(Boolean);
+
+  return chunks.map((chunk) => {
+    if (chunk === SUPER_TM) return { text: 'TM', superscript: true };
+    if (chunk === SUPER_R) return { text: 'R', superscript: true };
+    if (chunk === SUPER_C) return { text: 'C', superscript: true };
+    return { text: chunk, superscript: false };
+  });
+}
+
+function buildLineCommands(y, line, marginLeft) {
+  const normalSize = 11;
+  const superSize = 7;
+  const normalWidth = 5.4;
+  const superWidth = 3.6;
+  const superscriptLift = 4.2;
+
+  const segments = getLineSegments(line);
+  const commands = [];
+  let x = marginLeft;
+
+  for (const segment of segments) {
+    if (!segment.text) continue;
+
+    const drawY = segment.superscript ? y + superscriptLift : y;
+    const fontSize = segment.superscript ? superSize : normalSize;
+    const width = segment.superscript ? superWidth : normalWidth;
+
+    commands.push(`BT /F1 ${fontSize} Tf ${x.toFixed(2)} ${drawY.toFixed(2)} Td (${escapePdfText(segment.text)}) Tj ET`);
+    x += segment.text.length * width;
+  }
+
+  return commands;
+}
+
 function textToPdfBuffer(text) {
   const pageWidth = 612;
   const pageHeight = 792;
   const marginLeft = 50;
   const marginTop = 50;
+  const marginBottom = 50;
   const lineHeight = 16;
+  const paragraphGap = 10;
   const maxChars = 95;
 
-  const lines = sanitizeForPdfText(text)
-    .split(/\r?\n/)
-    .flatMap((line) => wrapLine(line || ' ', maxChars))
-    .map((line) => escapePdfText(line));
+  const content = sanitizeForPdfText(text);
+  const paragraphs = content.split(/\n\n+/).map((paragraph) => paragraph.trim());
 
   const pages = [];
   let currentPage = [];
   let y = pageHeight - marginTop;
 
-  for (const line of lines) {
-    if (y < 50) {
-      pages.push(currentPage);
-      currentPage = [];
-      y = pageHeight - marginTop;
+  const pushNewPage = () => {
+    if (currentPage.length) pages.push(currentPage);
+    currentPage = [];
+    y = pageHeight - marginTop;
+  };
+
+  for (const paragraph of paragraphs) {
+    const paragraphLines = (paragraph || ' ').split(/\r?\n/);
+
+    for (const paragraphLine of paragraphLines) {
+      const wrapped = wrapLine(paragraphLine || ' ', maxChars);
+
+      for (const line of wrapped) {
+        if (y < marginBottom) pushNewPage();
+        currentPage.push(...buildLineCommands(y, line, marginLeft));
+        y -= lineHeight;
+      }
     }
 
-    currentPage.push(`BT /F1 11 Tf ${marginLeft} ${y} Td (${line}) Tj ET`);
-    y -= lineHeight;
+    y -= paragraphGap;
   }
 
   if (currentPage.length === 0) {
     currentPage.push(`BT /F1 11 Tf ${marginLeft} ${pageHeight - marginTop} Td ( ) Tj ET`);
   }
+
   pages.push(currentPage);
 
   const objects = [];
-  const addObject = (content) => {
-    objects.push(content);
+  const addObject = (contentObject) => {
+    objects.push(contentObject);
     return objects.length;
   };
 
