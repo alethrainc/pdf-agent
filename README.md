@@ -46,3 +46,14 @@ Body:
 ```
 
 Returns a PDF binary response.
+
+
+## Logo and footer customization
+
+The upload form now allows overriding per-document page decoration values:
+
+- `logoUrl` (PNG URL shown on each page, default is ALETHRA logo)
+- `footerMain`
+- `footerSub`
+
+If omitted, server defaults are used.

@@ -1,6 +1,10 @@
-import { inflateRawSync } from 'zlib';
+import { inflateRawSync, inflateSync, deflateSync } from 'zlib';
 
 const SUPPORTED_EXTENSIONS = new Set(['pdf', 'docx', 'txt', 'rtf', 'html', 'htm']);
+const DEFAULT_LOGO_URL =
+  'https://plusbrand.com/wp-content/uploads/2025/10/Copia-de-ALETHRA_Logo-scaled.png';
+const DEFAULT_FOOTER_MAIN = '© 2026 ALETHRA™. All rights reserved.';
+const DEFAULT_FOOTER_SUB = 'Confidential – Not for distribution without written authorization.';
 
 function getExtension(fileName = '') {
   return fileName.split('.').pop()?.toLowerCase() || '';
@@ -148,16 +152,15 @@ async function formatTextWithAI(text, fileName) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || !text) return text;
 
-  const prompt = `Reformat this extracted document text into polished executive formatting while preserving exact meaning and all symbols (including ™, ®, ©).
+  const prompt = `Reformat this extracted document text into polished executive formatting while preserving exact meaning and symbols.
 
 Rules:
 - Preserve headings and hierarchy.
-- Preserve numbered lists and bullet lists.
-- Keep each bullet on its own line.
-- Keep paragraph spacing clear (empty line between paragraphs where appropriate).
-- Preserve and improve heading emphasis where appropriate.
+- Keep paragraphs and spacing clean.
+- Preserve bullets/numbered lists.
+- Keep title and section headings visually stronger, but not heavy.
 - Do not invent facts.
-- Output plain text only (no markdown fences).
+- Output plain text only.
 
 File: ${fileName || 'uploaded document'}\n\n${text}`;
 
@@ -177,9 +180,7 @@ File: ${fileName || 'uploaded document'}\n\n${text}`;
 
     if (!response.ok) return text;
     const payload = await response.json();
-
-    const aiText = payload?.output_text?.trim();
-    return aiText || text;
+    return payload?.output_text?.trim() || text;
   } catch {
     return text;
   }
@@ -190,8 +191,6 @@ function sanitizeForPdfText(text) {
     .replace(/[•◦▪●]/g, '• ')
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
-    .replace(/—/g, '—')
-    .replace(/–/g, '–')
     .replace(/\u00A0/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -230,11 +229,11 @@ function classifyLineStyle(line, contentIndex) {
   const isTitleCaseHeading = /^[A-Z][A-Za-z0-9'’&:,()\-\s]+$/.test(trimmed) && trimmed.length <= 68 && !trimmed.endsWith('.');
 
   if (isFirstLine) {
-    return { font: 'F2', size: 22, lineHeight: 30, color: '0.12 0.12 0.14' };
+    return { font: 'F3', size: 24, lineHeight: 32, color: '0.13 0.13 0.15' };
   }
 
   if (isNumberedHeading || isUpperHeading || isTitleCaseHeading) {
-    return { font: 'F2', size: 15, lineHeight: 22, color: '0.12 0.12 0.14' };
+    return { font: 'F2', size: 16, lineHeight: 23, color: '0.13 0.13 0.15' };
   }
 
   return { font: 'F1', size: 11, lineHeight: 18, color: '0.22 0.22 0.24' };
@@ -244,18 +243,145 @@ function buildLineCommand(line, x, y, style) {
   return `${style.color} rg BT /${style.font} ${style.size} Tf ${x.toFixed(2)} ${y.toFixed(2)} Td (${escapePdfText(line)}) Tj ET`;
 }
 
-function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeight) {
+function parsePng(buffer) {
+  const signature = buffer.subarray(0, 8);
+  const expected = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  if (!signature.equals(expected)) throw new Error('Unsupported logo format: expected PNG.');
+
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 8;
+  let colorType = 6;
+  const idat = [];
+
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.subarray(offset + 4, offset + 8).toString('ascii');
+    const data = buffer.subarray(offset + 8, offset + 8 + length);
+
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data.readUInt8(8);
+      colorType = data.readUInt8(9);
+    }
+
+    if (type === 'IDAT') idat.push(data);
+    if (type === 'IEND') break;
+
+    offset += 12 + length;
+  }
+
+  if (!width || !height || !idat.length || bitDepth !== 8) {
+    throw new Error('Unsupported logo PNG metadata.');
+  }
+
+  return { width, height, colorType, compressed: Buffer.concat(idat) };
+}
+
+function unfilterPngScanlines(raw, width, height, bpp) {
+  const stride = width * bpp;
+  const out = Buffer.alloc(height * stride);
+  let inPos = 0;
+
+  for (let row = 0; row < height; row += 1) {
+    const filter = raw[inPos];
+    inPos += 1;
+    const rowStart = row * stride;
+
+    for (let col = 0; col < stride; col += 1) {
+      const x = raw[inPos++];
+      const left = col >= bpp ? out[rowStart + col - bpp] : 0;
+      const up = row > 0 ? out[rowStart - stride + col] : 0;
+      const upLeft = row > 0 && col >= bpp ? out[rowStart - stride + col - bpp] : 0;
+
+      if (filter === 0) out[rowStart + col] = x;
+      else if (filter === 1) out[rowStart + col] = (x + left) & 0xff;
+      else if (filter === 2) out[rowStart + col] = (x + up) & 0xff;
+      else if (filter === 3) out[rowStart + col] = (x + Math.floor((left + up) / 2)) & 0xff;
+      else if (filter === 4) {
+        const p = left + up - upLeft;
+        const pa = Math.abs(p - left);
+        const pb = Math.abs(p - up);
+        const pc = Math.abs(p - upLeft);
+        const pred = pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft;
+        out[rowStart + col] = (x + pred) & 0xff;
+      } else throw new Error('Unsupported PNG filter in logo image.');
+    }
+  }
+
+  return out;
+}
+
+function toPdfRgbPng(png) {
+  const bpp = png.colorType === 2 ? 3 : png.colorType === 6 ? 4 : 0;
+  if (!bpp) throw new Error('Unsupported logo PNG color type.');
+
+  const uncompressed = inflateSync(png.compressed);
+  const rgbaOrRgb = unfilterPngScanlines(uncompressed, png.width, png.height, bpp);
+
+  const rowSizeRgb = png.width * 3;
+  const rows = Buffer.alloc(png.height * (rowSizeRgb + 1));
+
+  for (let y = 0; y < png.height; y += 1) {
+    const srcBase = y * png.width * bpp;
+    const dstBase = y * (rowSizeRgb + 1);
+    rows[dstBase] = 0;
+
+    for (let x = 0; x < png.width; x += 1) {
+      const si = srcBase + x * bpp;
+      const di = dstBase + 1 + x * 3;
+      rows[di] = rgbaOrRgb[si];
+      rows[di + 1] = rgbaOrRgb[si + 1];
+      rows[di + 2] = rgbaOrRgb[si + 2];
+    }
+  }
+
+  return {
+    width: png.width,
+    height: png.height,
+    compressedRgbRows: deflateSync(rows),
+  };
+}
+
+async function fetchLogoPdfImage(logoUrl) {
+  if (!logoUrl) return null;
+
+  try {
+    const response = await fetch(logoUrl);
+    if (!response.ok) return null;
+    const data = Buffer.from(await response.arrayBuffer());
+    const png = parsePng(data);
+    return toPdfRgbPng(png);
+  } catch {
+    return null;
+  }
+}
+
+function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeight, options, hasLogo) {
   const leftRailWidth = 22;
   const footerY = 28;
-  const footerMain = '© 2026 ALETHRA™. All rights reserved.';
-  const footerSub = 'Confidential – Not for distribution without written authorization.';
+  const footerMain = options.footerMain || DEFAULT_FOOTER_MAIN;
+  const footerSub = options.footerSub || DEFAULT_FOOTER_SUB;
   const pageLabel = `Page ${pageNumber} of ${totalPages}`;
 
-  return [
+  const commands = [
     'q',
     '0.85 0.11 0.16 rg',
     `0 0 ${leftRailWidth} ${pageHeight} re f`,
     'Q',
+  ];
+
+  if (hasLogo) {
+    const logoWidth = 135;
+    const logoHeight = 34;
+    const logoX = 54;
+    const logoY = pageHeight - 72;
+    commands.push(`q ${logoWidth} 0 0 ${logoHeight} ${logoX} ${logoY} cm /Im1 Do Q`);
+  }
+
+  commands.push(
     buildLineCommand(footerMain, 46, footerY + 10, {
       font: 'F1',
       size: 9,
@@ -270,15 +396,17 @@ function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeig
       font: 'F1',
       size: 8,
       color: '0.35 0.35 0.35',
-    }),
-  ];
+    })
+  );
+
+  return commands;
 }
 
-function textToPdfBuffer(text) {
+async function textToPdfBuffer(text, options = {}) {
   const pageWidth = 612;
   const pageHeight = 792;
   const marginLeft = 72;
-  const marginTop = 72;
+  const marginTop = options.logoUrl ? 116 : 72;
   const marginBottom = 74;
   const maxChars = 74;
   const paragraphGap = 8;
@@ -313,9 +441,7 @@ function textToPdfBuffer(text) {
       }
     }
 
-    if (paragraphIndex < paragraphs.length - 1) {
-      y -= paragraphGap;
-    }
+    if (paragraphIndex < paragraphs.length - 1) y -= paragraphGap;
   }
 
   if (currentPage.length === 0) {
@@ -328,6 +454,8 @@ function textToPdfBuffer(text) {
 
   pages.push(currentPage);
 
+  const logoImage = await fetchLogoPdfImage(options.logoUrl || DEFAULT_LOGO_URL);
+
   const objects = [];
   const addObject = (contentObject) => {
     objects.push(contentObject);
@@ -335,20 +463,31 @@ function textToPdfBuffer(text) {
   };
 
   const regularFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
-  const boldFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+  const mediumFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>');
+  const titleFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+
+  let logoObjectId = null;
+  if (logoImage) {
+    logoObjectId = addObject(
+      `<< /Type /XObject /Subtype /Image /Width ${logoImage.width} /Height ${logoImage.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors 3 /BitsPerComponent 8 /Columns ${logoImage.width} >> /Length ${logoImage.compressedRgbRows.length} >>\nstream\n${logoImage.compressedRgbRows.toString('binary')}\nendstream`
+    );
+  }
+
   const pageObjectIds = [];
 
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
     const pageLines = pages[pageIndex];
     const decorated = [
-      ...buildPageDecorationCommands(pageIndex + 1, pages.length, pageWidth, pageHeight),
+      ...buildPageDecorationCommands(pageIndex + 1, pages.length, pageWidth, pageHeight, options, Boolean(logoImage)),
       ...pageLines,
     ];
 
     const stream = decorated.join('\n');
     const contentObjectId = addObject(`<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream`);
+
+    const xObjectEntry = logoObjectId ? ` /XObject << /Im1 ${logoObjectId} 0 R >>` : '';
     const pageObjectId = addObject(
-      `<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${regularFontObjectId} 0 R /F2 ${boldFontObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>`
+      `<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${regularFontObjectId} 0 R /F2 ${mediumFontObjectId} 0 R /F3 ${titleFontObjectId} 0 R >>${xObjectEntry} >> /Contents ${contentObjectId} 0 R >>`
     );
     pageObjectIds.push(pageObjectId);
   }
@@ -367,11 +506,11 @@ function textToPdfBuffer(text) {
   const offsets = [0];
 
   for (let i = 0; i < objects.length; i += 1) {
-    offsets.push(Buffer.byteLength(pdf, 'utf8'));
+    offsets.push(Buffer.byteLength(pdf, 'binary'));
     pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
   }
 
-  const xrefStart = Buffer.byteLength(pdf, 'utf8');
+  const xrefStart = Buffer.byteLength(pdf, 'binary');
   pdf += `xref\n0 ${objects.length + 1}\n`;
   pdf += '0000000000 65535 f \n';
 
@@ -380,10 +519,10 @@ function textToPdfBuffer(text) {
   }
 
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogObjectId} 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
-  return Buffer.from(pdf, 'utf8');
+  return Buffer.from(pdf, 'binary');
 }
 
-async function convertUploadedFile(uploadedFile) {
+async function convertUploadedFile(uploadedFile, options) {
   const rawBuffer = Buffer.from(uploadedFile.data, 'base64');
   const extension = getExtension(uploadedFile.name);
 
@@ -391,22 +530,22 @@ async function convertUploadedFile(uploadedFile) {
 
   if (extension === 'docx') {
     const text = await formatTextWithAI(docxToText(rawBuffer), uploadedFile.name);
-    return textToPdfBuffer(text);
+    return textToPdfBuffer(text, options);
   }
 
   if (extension === 'txt') {
     const text = await formatTextWithAI(rawBuffer.toString('utf8'), uploadedFile.name);
-    return textToPdfBuffer(text);
+    return textToPdfBuffer(text, options);
   }
 
   if (extension === 'rtf') {
     const text = await formatTextWithAI(rtfToText(rawBuffer.toString('utf8')), uploadedFile.name);
-    return textToPdfBuffer(text);
+    return textToPdfBuffer(text, options);
   }
 
   if (extension === 'html' || extension === 'htm') {
     const text = await formatTextWithAI(htmlToText(rawBuffer.toString('utf8')), uploadedFile.name);
-    return textToPdfBuffer(text);
+    return textToPdfBuffer(text, options);
   }
 
   throw new Error('Unsupported file type. Upload PDF, DOCX, TXT, RTF, or HTML.');
@@ -418,7 +557,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { fileName, uploadedFile } = req.body || {};
+  const { fileName, uploadedFile, logoUrl, footerMain, footerSub } = req.body || {};
 
   if (!uploadedFile?.name || !uploadedFile?.data) {
     return res.status(400).json({ error: 'Please upload a file to convert.' });
@@ -432,7 +571,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    const pdfBuffer = await convertUploadedFile(uploadedFile);
+    const pdfBuffer = await convertUploadedFile(uploadedFile, {
+      logoUrl: logoUrl || DEFAULT_LOGO_URL,
+      footerMain: footerMain || DEFAULT_FOOTER_MAIN,
+      footerSub: footerSub || DEFAULT_FOOTER_SUB,
+    });
+
     const safeName = getSafeName(fileName || uploadedFile.name || 'document');
 
     res.setHeader('Content-Type', 'application/pdf');
