@@ -1,9 +1,6 @@
 import { inflateRawSync } from 'zlib';
 
 const SUPPORTED_EXTENSIONS = new Set(['pdf', 'docx', 'txt', 'rtf', 'html', 'htm']);
-const SUPER_TM = '<<SUPER_TM>>';
-const SUPER_R = '<<SUPER_R>>';
-const SUPER_C = '<<SUPER_C>>';
 
 function getExtension(fileName = '') {
   return fileName.split('.').pop()?.toLowerCase() || '';
@@ -158,6 +155,7 @@ Rules:
 - Preserve numbered lists and bullet lists.
 - Keep each bullet on its own line.
 - Keep paragraph spacing clear (empty line between paragraphs where appropriate).
+- Preserve and improve heading emphasis where appropriate.
 - Do not invent facts.
 - Output plain text only (no markdown fences).
 
@@ -189,31 +187,22 @@ File: ${fileName || 'uploaded document'}\n\n${text}`;
 
 function sanitizeForPdfText(text) {
   return text
-    .replace(/™/g, SUPER_TM)
-    .replace(/®/g, SUPER_R)
-    .replace(/©/g, SUPER_C)
-    .replace(/[•◦▪●]/g, '- ')
+    .replace(/[•◦▪●]/g, '• ')
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
-    .replace(/—/g, '--')
-    .replace(/–/g, '-')
+    .replace(/—/g, '—')
+    .replace(/–/g, '–')
     .replace(/\u00A0/g, ' ')
-    .replace(/\n{3,}/g, '\n\n');
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function escapePdfText(text) {
   return text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
 
-function visibleLength(text) {
-  return text
-    .replaceAll(SUPER_TM, 'TM')
-    .replaceAll(SUPER_R, 'R')
-    .replaceAll(SUPER_C, 'C').length;
-}
-
 function wrapLine(line, maxChars) {
-  if (visibleLength(line) <= maxChars) return [line];
+  if (line.length <= maxChars) return [line];
 
   const words = line.split(/\s+/);
   const lines = [];
@@ -221,7 +210,7 @@ function wrapLine(line, maxChars) {
 
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
-    if (visibleLength(candidate) > maxChars) {
+    if (candidate.length > maxChars) {
       if (current) lines.push(current);
       current = word;
     } else {
@@ -233,86 +222,56 @@ function wrapLine(line, maxChars) {
   return lines;
 }
 
-function getLineSegments(line) {
-  const markerRegex = new RegExp(`(${SUPER_TM}|${SUPER_R}|${SUPER_C})`, 'g');
-  const chunks = line.split(markerRegex).filter(Boolean);
+function classifyLineStyle(line, contentIndex) {
+  const trimmed = line.trim();
+  const isFirstLine = contentIndex === 0;
+  const isNumberedHeading = /^\d+[\.)]\s+/.test(trimmed);
+  const isUpperHeading = trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed) && trimmed.length <= 72;
+  const isTitleCaseHeading = /^[A-Z][A-Za-z0-9'’&:,()\-\s]+$/.test(trimmed) && trimmed.length <= 68 && !trimmed.endsWith('.');
 
-  return chunks.map((chunk) => {
-    if (chunk === SUPER_TM) return { text: 'TM', superscript: true };
-    if (chunk === SUPER_R) return { text: 'R', superscript: true };
-    if (chunk === SUPER_C) return { text: 'C', superscript: true };
-    return { text: chunk, superscript: false };
-  });
-}
-
-function buildLineCommands(y, line, marginLeft, options = {}) {
-  const normalSize = options.normalSize ?? 11;
-  const superSize = options.superSize ?? 7;
-  const normalWidth = options.normalWidth ?? 6.2;
-  const superWidth = options.superWidth ?? 4.1;
-  const superscriptLift = options.superscriptLift ?? 4.2;
-  const glyphSpacing = options.glyphSpacing ?? 0.2;
-  const color = options.color ?? '0.13 0.13 0.13';
-
-  const segments = getLineSegments(line);
-  const commands = [];
-  let x = marginLeft;
-
-  for (const segment of segments) {
-    if (!segment.text) continue;
-
-    const drawY = segment.superscript ? y + superscriptLift : y;
-    const fontSize = segment.superscript ? superSize : normalSize;
-    const width = segment.superscript ? superWidth : normalWidth;
-
-    commands.push(`${color} rg BT /F1 ${fontSize} Tf ${x.toFixed(2)} ${drawY.toFixed(2)} Td (${escapePdfText(segment.text)}) Tj ET`);
-    x += segment.text.length * width + glyphSpacing;
+  if (isFirstLine) {
+    return { font: 'F2', size: 22, lineHeight: 30, color: '0.12 0.12 0.14' };
   }
 
-  return commands;
+  if (isNumberedHeading || isUpperHeading || isTitleCaseHeading) {
+    return { font: 'F2', size: 15, lineHeight: 22, color: '0.12 0.12 0.14' };
+  }
+
+  return { font: 'F1', size: 11, lineHeight: 18, color: '0.22 0.22 0.24' };
+}
+
+function buildLineCommand(line, x, y, style) {
+  return `${style.color} rg BT /${style.font} ${style.size} Tf ${x.toFixed(2)} ${y.toFixed(2)} Td (${escapePdfText(line)}) Tj ET`;
 }
 
 function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeight) {
   const leftRailWidth = 22;
-  const footerY = 26;
-  const footerText = sanitizeForPdfText('© 2026 ALETHRA™. All rights reserved.');
-  const footerSubText = sanitizeForPdfText('Confidential – Not for distribution without written authorization.');
+  const footerY = 28;
+  const footerMain = '© 2026 ALETHRA™. All rights reserved.';
+  const footerSub = 'Confidential – Not for distribution without written authorization.';
   const pageLabel = `Page ${pageNumber} of ${totalPages}`;
 
-  const commands = [
+  return [
     'q',
     '0.85 0.11 0.16 rg',
     `0 0 ${leftRailWidth} ${pageHeight} re f`,
     'Q',
-    '0.88 0.88 0.88 RG 0.6 w',
-    `0 20 m ${pageWidth} 20 l S`,
-    ...buildLineCommands(footerY + 9, footerText, 46, {
-      normalSize: 9,
-      superSize: 6,
-      normalWidth: 4.6,
-      superWidth: 3.2,
-      superscriptLift: 3.4,
+    buildLineCommand(footerMain, 46, footerY + 10, {
+      font: 'F1',
+      size: 9,
       color: '0.35 0.35 0.35',
     }),
-    ...buildLineCommands(footerY - 8, footerSubText, 46, {
-      normalSize: 8,
-      superSize: 6,
-      normalWidth: 4.2,
-      superWidth: 3.0,
-      superscriptLift: 3.2,
+    buildLineCommand(footerSub, 46, footerY - 7, {
+      font: 'F1',
+      size: 8,
       color: '0.35 0.35 0.35',
     }),
-    ...buildLineCommands(footerY - 8, pageLabel, pageWidth - 130, {
-      normalSize: 8,
-      superSize: 6,
-      normalWidth: 4.2,
-      superWidth: 3.0,
-      superscriptLift: 3.2,
+    buildLineCommand(pageLabel, pageWidth - 90, footerY - 7, {
+      font: 'F1',
+      size: 8,
       color: '0.35 0.35 0.35',
     }),
   ];
-
-  return commands;
 }
 
 function textToPdfBuffer(text) {
@@ -320,10 +279,9 @@ function textToPdfBuffer(text) {
   const pageHeight = 792;
   const marginLeft = 72;
   const marginTop = 72;
-  const marginBottom = 72;
-  const lineHeight = 19;
-  const paragraphGap = 12;
+  const marginBottom = 74;
   const maxChars = 74;
+  const paragraphGap = 8;
 
   const content = sanitizeForPdfText(text);
   const paragraphs = content.split(/\n\n+/).map((paragraph) => paragraph.trimEnd());
@@ -331,6 +289,7 @@ function textToPdfBuffer(text) {
   const pages = [];
   let currentPage = [];
   let y = pageHeight - marginTop;
+  let contentIndex = 0;
 
   const pushNewPage = () => {
     if (currentPage.length) pages.push(currentPage);
@@ -346,9 +305,11 @@ function textToPdfBuffer(text) {
       const wrapped = wrapLine(paragraphLine || ' ', maxChars);
 
       for (const line of wrapped) {
+        const style = classifyLineStyle(line, contentIndex);
         if (y < marginBottom) pushNewPage();
-        currentPage.push(...buildLineCommands(y, line, marginLeft));
-        y -= lineHeight;
+        currentPage.push(buildLineCommand(line, marginLeft, y, style));
+        y -= style.lineHeight;
+        contentIndex += 1;
       }
     }
 
@@ -358,7 +319,11 @@ function textToPdfBuffer(text) {
   }
 
   if (currentPage.length === 0) {
-    currentPage.push(`0.13 0.13 0.13 rg BT /F1 11 Tf ${marginLeft} ${pageHeight - marginTop} Td ( ) Tj ET`);
+    currentPage.push(buildLineCommand(' ', marginLeft, pageHeight - marginTop, {
+      font: 'F1',
+      size: 11,
+      color: '0.22 0.22 0.24',
+    }));
   }
 
   pages.push(currentPage);
@@ -369,7 +334,8 @@ function textToPdfBuffer(text) {
     return objects.length;
   };
 
-  const fontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  const regularFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  const boldFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
   const pageObjectIds = [];
 
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
@@ -380,12 +346,9 @@ function textToPdfBuffer(text) {
     ];
 
     const stream = decorated.join('\n');
-    const contentObjectId = addObject(`<< /Length ${Buffer.byteLength(stream, 'utf8')} >>
-stream
-${stream}
-endstream`);
+    const contentObjectId = addObject(`<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream`);
     const pageObjectId = addObject(
-      `<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>`
+      `<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${regularFontObjectId} 0 R /F2 ${boldFontObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>`
     );
     pageObjectIds.push(pageObjectId);
   }
