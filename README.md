@@ -5,6 +5,7 @@ This app converts uploaded files into a downloadable PDF.
 Supported input types:
 
 - PDF (returned as-is)
+- DOCX
 - TXT
 - RTF
 - HTML/HTM
@@ -28,7 +29,7 @@ Body:
 {
   "fileName": "optional-custom-name",
   "uploadedFile": {
-    "name": "notes.txt",
+    "name": "notes.docx",
     "data": "<base64>"
   }
 }

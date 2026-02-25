@@ -1,4 +1,6 @@
-const SUPPORTED_EXTENSIONS = new Set(['pdf', 'txt', 'rtf', 'html', 'htm']);
+import { inflateRawSync } from 'zlib';
+
+const SUPPORTED_EXTENSIONS = new Set(['pdf', 'docx', 'txt', 'rtf', 'html', 'htm']);
 
 function getExtension(fileName = '') {
   return fileName.split('.').pop()?.toLowerCase() || '';
@@ -30,6 +32,98 @@ function rtfToText(rtf) {
     .replace(/[{}]/g, '')
     .replace(/\s+\n/g, '\n')
     .trim();
+}
+
+function extractZipEntry(buffer, targetName) {
+  const eocdSig = 0x06054b50;
+  const cdSig = 0x02014b50;
+  const localSig = 0x04034b50;
+
+  let eocdOffset = -1;
+  const searchStart = Math.max(0, buffer.length - 65557);
+  for (let i = buffer.length - 22; i >= searchStart; i -= 1) {
+    if (buffer.readUInt32LE(i) === eocdSig) {
+      eocdOffset = i;
+      break;
+    }
+  }
+
+  if (eocdOffset < 0) {
+    throw new Error('Invalid DOCX file (missing zip directory).');
+  }
+
+  const centralDirOffset = buffer.readUInt32LE(eocdOffset + 16);
+  const centralDirSize = buffer.readUInt32LE(eocdOffset + 12);
+  const centralDirEnd = centralDirOffset + centralDirSize;
+
+  let ptr = centralDirOffset;
+  while (ptr < centralDirEnd) {
+    if (buffer.readUInt32LE(ptr) !== cdSig) {
+      throw new Error('Invalid DOCX file (corrupt zip entry).');
+    }
+
+    const compressionMethod = buffer.readUInt16LE(ptr + 10);
+    const compressedSize = buffer.readUInt32LE(ptr + 20);
+    const uncompressedSize = buffer.readUInt32LE(ptr + 24);
+    const fileNameLength = buffer.readUInt16LE(ptr + 28);
+    const extraLength = buffer.readUInt16LE(ptr + 30);
+    const commentLength = buffer.readUInt16LE(ptr + 32);
+    const localHeaderOffset = buffer.readUInt32LE(ptr + 42);
+
+    const fileNameStart = ptr + 46;
+    const fileName = buffer.subarray(fileNameStart, fileNameStart + fileNameLength).toString('utf8');
+
+    if (fileName === targetName) {
+      if (buffer.readUInt32LE(localHeaderOffset) !== localSig) {
+        throw new Error('Invalid DOCX file (bad local header).');
+      }
+
+      const localNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+      const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+      const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
+      const compressedData = buffer.subarray(dataStart, dataStart + compressedSize);
+
+      if (compressionMethod === 0) {
+        return compressedData;
+      }
+      if (compressionMethod === 8) {
+        const inflated = inflateRawSync(compressedData);
+        if (uncompressedSize && inflated.length !== uncompressedSize) {
+          throw new Error('Invalid DOCX file (unexpected decompressed size).');
+        }
+        return inflated;
+      }
+
+      throw new Error('Unsupported DOCX compression method.');
+    }
+
+    ptr += 46 + fileNameLength + extraLength + commentLength;
+  }
+
+  throw new Error('Invalid DOCX file (word/document.xml not found).');
+}
+
+function decodeXmlEntities(text) {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function docxToText(rawBuffer) {
+  const xml = extractZipEntry(rawBuffer, 'word/document.xml').toString('utf8');
+  return decodeXmlEntities(
+    xml
+      .replace(/<w:tab\/?\s*>/g, '\t')
+      .replace(/<w:br\/?\s*>/g, '\n')
+      .replace(/<w:p\b[^>]*>/g, '\n')
+      .replace(/<w:pPr\b[\s\S]*?<\/w:pPr>/g, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  );
 }
 
 function escapePdfText(text) {
@@ -143,13 +237,14 @@ function convertUploadedFile(uploadedFile) {
   const extension = getExtension(uploadedFile.name);
 
   if (extension === 'pdf') return rawBuffer;
+  if (extension === 'docx') return textToPdfBuffer(docxToText(rawBuffer));
   if (extension === 'txt') return textToPdfBuffer(rawBuffer.toString('utf8'));
   if (extension === 'rtf') return textToPdfBuffer(rtfToText(rawBuffer.toString('utf8')));
   if (extension === 'html' || extension === 'htm') {
     return textToPdfBuffer(htmlToText(rawBuffer.toString('utf8')));
   }
 
-  throw new Error('Unsupported file type. Upload PDF, TXT, RTF, or HTML.');
+  throw new Error('Unsupported file type. Upload PDF, DOCX, TXT, RTF, or HTML.');
 }
 
 export default async function handler(req, res) {
@@ -167,7 +262,7 @@ export default async function handler(req, res) {
   const extension = getExtension(uploadedFile.name);
   if (!SUPPORTED_EXTENSIONS.has(extension)) {
     return res.status(400).json({
-      error: 'Unsupported file type. Upload PDF, TXT, RTF, or HTML.',
+      error: 'Unsupported file type. Upload PDF, DOCX, TXT, RTF, or HTML.',
     });
   }
 

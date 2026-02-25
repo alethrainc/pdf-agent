@@ -92,14 +92,14 @@ export default function Home() {
     <main className={styles.main}>
       <section className={styles.card}>
         <h1>Upload File → PDF</h1>
-        <p>Upload a file and convert it to PDF. Supported: PDF, TXT, RTF, HTML.</p>
+        <p>Upload a file and convert it to PDF. Supported: PDF, DOCX, TXT, RTF, HTML.</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
           <label htmlFor="upload">Upload a file (or drop below)</label>
           <input
             id="upload"
             type="file"
-            accept=".pdf,.txt,.rtf,.html,.htm"
+            accept=".pdf,.docx,.txt,.rtf,.html,.htm"
             onChange={(event) => handleFileSelect(event.target.files?.[0])}
             required
           />
