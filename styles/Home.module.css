@@ -29,6 +29,21 @@
   font-size: 0.95rem;
 }
 
+.dropZone {
+  border: 2px dashed #b8c3e6;
+  background: #f8faff;
+  color: #33406f;
+  border-radius: 10px;
+  padding: 18px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.dropZoneActive {
+  border-color: #3055ee;
+  background: #eef3ff;
+}
+
 .form button {
   background: #3055ee;
   color: white;

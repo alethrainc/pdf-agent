@@ -1,22 +1,73 @@
 import { useState } from 'react';
 import styles from '../styles/Home.module.css';
 
+async function fileToBase64(file) {
+  const buffer = await file.arrayBuffer();
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunk = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunk) {
+    const slice = bytes.subarray(index, index + chunk);
+    binary += String.fromCharCode(...slice);
+  }
+
+  return btoa(binary);
+}
+
 export default function Home() {
   const [source, setSource] = useState('');
   const [fileName, setFileName] = useState('');
+  const [upload, setUpload] = useState(null);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+
+  function handleFileSelect(file) {
+    if (!file) return;
+
+    setUpload(file);
+    if (!fileName) {
+      const baseName = file.name.replace(/\.[^/.]+$/, '');
+      setFileName(baseName);
+    }
+    setStatus(`Selected file: ${file.name}`);
+  }
+
+  function handleDrop(event) {
+    event.preventDefault();
+    setDragActive(false);
+    const dropped = event.dataTransfer.files?.[0];
+    handleFileSelect(dropped);
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
     setStatus('');
+
+    if (!source.trim() && !upload) {
+      setStatus('Provide a Google Doc URL/ID or drop/upload a file to convert.');
+      return;
+    }
+
     setBusy(true);
 
     try {
+      let uploadedFile = null;
+
+      if (upload) {
+        const base64 = await fileToBase64(upload);
+        uploadedFile = {
+          name: upload.name,
+          mimeType: upload.type || 'application/octet-stream',
+          data: base64,
+        };
+      }
+
       const response = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source, fileName }),
+        body: JSON.stringify({ source, fileName, uploadedFile }),
       });
 
       if (!response.ok) {
@@ -28,7 +79,7 @@ export default function Home() {
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `${fileName || 'document'}.pdf`;
+      anchor.download = `${fileName || upload?.name?.replace(/\.[^/.]+$/, '') || 'document'}.pdf`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -45,22 +96,43 @@ export default function Home() {
   return (
     <main className={styles.main}>
       <section className={styles.card}>
-        <h1>Google Docs → PDF Automation</h1>
+        <h1>Google Docs / File → PDF Automation</h1>
         <p>
-          Enter a Google Doc URL (or ID) and this app exports it as a PDF using
-          Google Drive APIs.
+          Paste a Google Doc URL or ID, or drag-and-drop a supported file (DOCX,
+          ODT, RTF, TXT, HTML) to convert it to PDF.
         </p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <label htmlFor="source">Google Doc URL or document ID</label>
+          <label htmlFor="source">Google Doc URL or document ID (optional if uploading)</label>
           <input
             id="source"
             type="text"
             value={source}
             onChange={(event) => setSource(event.target.value)}
             placeholder="https://docs.google.com/document/d/..."
-            required
           />
+
+          <label htmlFor="upload">Upload a file (or drop below)</label>
+          <input
+            id="upload"
+            type="file"
+            accept=".doc,.docx,.odt,.rtf,.txt,.html,.htm"
+            onChange={(event) => handleFileSelect(event.target.files?.[0])}
+          />
+
+          <div
+            className={`${styles.dropZone} ${dragActive ? styles.dropZoneActive : ''}`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDragActive(true);
+            }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={handleDrop}
+          >
+            {upload
+              ? `Ready to convert: ${upload.name}`
+              : 'Drag & drop a document file here'}
+          </div>
 
           <label htmlFor="fileName">Optional output file name</label>
           <input
