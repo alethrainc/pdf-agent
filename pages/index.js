@@ -13,6 +13,76 @@ const DEFAULT_STYLE_OPTIONS = {
 
 
 
+
+
+function loadScriptOnce(src, globalName) {
+  return new Promise((resolve, reject) => {
+    if (typeof window !== 'undefined' && window[globalName]) {
+      resolve(window[globalName]);
+      return;
+    }
+
+    const existing = document.querySelector(`script[data-src="${src}"]`);
+    if (existing) {
+      existing.addEventListener('load', () => resolve(window[globalName]));
+      existing.addEventListener('error', () => reject(new Error(`Unable to load ${globalName}.`)));
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.dataset.src = src;
+    script.onload = () => resolve(window[globalName]);
+    script.onerror = () => reject(new Error(`Unable to load ${globalName}.`));
+    document.head.appendChild(script);
+  });
+}
+
+async function loadLogoDataUrl(url) {
+  if (!url) return null;
+
+  const proxiedUrl = `/api/logo-proxy?url=${encodeURIComponent(url)}`;
+  const response = await fetch(proxiedUrl);
+  if (!response.ok) return null;
+
+  const blob = await response.blob();
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(blob);
+  });
+}
+
+function getBlockStyle(blockRole, styleOptions) {
+  const isTitle = blockRole === 'title';
+  const isHeading = blockRole === 'heading';
+  const fontSize = isTitle
+    ? Number(styleOptions.titleFontSize) || DEFAULT_STYLE_OPTIONS.titleFontSize
+    : isHeading
+      ? Number(styleOptions.headingFontSize) || DEFAULT_STYLE_OPTIONS.headingFontSize
+      : Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize;
+
+  return {
+    fontSize,
+    lineHeight: isTitle ? fontSize * 1.32 : isHeading ? fontSize * 1.42 : fontSize * 1.58,
+    fontStyle: isTitle
+      ? styleOptions.titleFontWeight === 'normal' ? 'bold' : 'normal'
+      : isHeading ? 'bold' : 'normal',
+    align: isTitle ? 'center' : 'left',
+    paragraphGap: isTitle ? 14 : 10,
+  };
+}
+
+
+function getImageFormat(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return 'PNG';
+  if (dataUrl.startsWith('data:image/jpeg') || dataUrl.startsWith('data:image/jpg')) return 'JPEG';
+  if (dataUrl.startsWith('data:image/webp')) return 'WEBP';
+  return 'PNG';
+}
+
 async function fileToBase64(file) {
   const buffer = await file.arrayBuffer();
   let binary = '';
@@ -112,34 +182,106 @@ export default function Home() {
     setBusy(true);
 
     try {
-      const base64 = await fileToBase64(upload);
-      const uploadedFile = {
-        name: upload.name,
-        mimeType: upload.type || 'application/octet-stream',
-        data: base64,
-      };
+      await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', 'jspdf');
+      const { jsPDF } = window.jspdf || {};
+      if (!jsPDF) throw new Error('Unable to initialize PDF exporter.');
 
-      const response = await fetch('/api/generate-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName, uploadedFile, logoUrl, footerMain, footerSub, styleOptions, codedDocument }),
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'pt',
+        format: 'letter',
       });
 
-      if (!response.ok) {
-        const payload = await response.json();
-        throw new Error(payload.error || 'Request failed');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const stripeWidth = 22;
+      const textLeft = 72;
+      const textRight = pageWidth - 46;
+      const textWidth = textRight - textLeft;
+      const footerY = pageHeight - 42;
+      const contentTop = 112;
+      const contentBottom = pageHeight - 74;
+
+      const logoDataUrl = await loadLogoDataUrl(logoUrl);
+      const preparedBlocks = (codedDocument?.blocks || [])
+        .map((block) => {
+          const text = block?.text?.trim();
+          if (!text) return null;
+          const style = getBlockStyle(block.role, styleOptions);
+          pdf.setFont('helvetica', style.fontStyle);
+          pdf.setFontSize(style.fontSize);
+          const lines = pdf.splitTextToSize(text, style.align === 'center' ? textWidth * 0.75 : textWidth);
+          return { ...style, lines, text };
+        })
+        .filter(Boolean);
+
+      const pages = [];
+      let currentPage = [];
+      let y = contentTop;
+
+      for (const block of preparedBlocks) {
+        const blockHeight = block.lines.length * block.lineHeight + block.paragraphGap;
+
+        if (y + blockHeight > contentBottom && currentPage.length) {
+          pages.push(currentPage);
+          currentPage = [];
+          y = contentTop;
+        }
+
+        currentPage.push({ ...block, yStart: y });
+        y += blockHeight;
       }
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `${fileName || upload.name.replace(/\.[^/.]+$/, '') || 'document'}.pdf`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
+      if (!currentPage.length) {
+        currentPage.push({
+          ...getBlockStyle('body', styleOptions),
+          lines: [' '],
+          yStart: contentTop,
+          align: 'left',
+          fontStyle: 'normal',
+          fontSize: Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize,
+          lineHeight: (Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize) * 1.58,
+        });
+      }
 
+      pages.push(currentPage);
+
+      for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+        if (pageIndex > 0) pdf.addPage();
+
+        pdf.setFillColor(211, 31, 45);
+        pdf.rect(0, 0, stripeWidth, pageHeight, 'F');
+
+        if (logoDataUrl) {
+          pdf.addImage(logoDataUrl, getImageFormat(logoDataUrl), 54, 40, 135, 34, undefined, 'FAST');
+        }
+
+        for (const block of pages[pageIndex]) {
+          pdf.setFont('helvetica', block.fontStyle);
+          pdf.setFontSize(block.fontSize);
+          pdf.setTextColor(0, 0, 0);
+
+          let lineY = block.yStart;
+          for (const line of block.lines) {
+            if (block.align === 'center') {
+              pdf.text(line, pageWidth / 2, lineY, { align: 'center' });
+            } else {
+              pdf.text(line, textLeft, lineY);
+            }
+            lineY += block.lineHeight;
+          }
+        }
+
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(10);
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(footerMain || DEFAULT_FOOTER_MAIN, 72, footerY);
+        pdf.text(footerSub || DEFAULT_FOOTER_SUB, 72, footerY + 17);
+        pdf.text(`Page ${pageIndex + 1} of ${pages.length}`, pageWidth - 72, footerY + 17, { align: 'right' });
+      }
+
+      const outputName = `${fileName || upload.name.replace(/\.[^/.]+$/, '') || 'document'}.pdf`;
+      pdf.save(outputName);
       setStatus('PDF generated and downloaded successfully.');
     } catch (error) {
       setStatus(error.message || 'Unable to export PDF.');
