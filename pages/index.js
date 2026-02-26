@@ -103,18 +103,27 @@ function splitInlineListItems(line) {
   const normalized = String(line || '').replace(/\s+/g, ' ').trim();
   if (!normalized) return [''];
 
-  const bulletMatches = [...normalized.matchAll(/(?:^|\s)([•\-\*]|\d+[\.)])\s+/g)];
-  if (bulletMatches.length <= 1) return [normalized];
+  const bulletNormalized = normalized.replace(/\s*•\s*/g, '\n• ');
+  const segments = bulletNormalized.split('\n').map((segment) => segment.trim()).filter(Boolean);
 
-  return bulletMatches
-    .map((match, index) => {
+  const expanded = [];
+  for (const segment of segments) {
+    const numberedMatches = [...segment.matchAll(/(?:^|\s)(\d+[\.)])\s+/g)];
+    if (numberedMatches.length <= 1) {
+      expanded.push(segment);
+      continue;
+    }
+
+    numberedMatches.forEach((match, index) => {
       const contentStart = match.index + match[0].length;
-      const contentEnd = index + 1 < bulletMatches.length ? bulletMatches[index + 1].index : normalized.length;
+      const contentEnd = index + 1 < numberedMatches.length ? numberedMatches[index + 1].index : segment.length;
       const marker = match[1];
-      const content = normalized.slice(contentStart, contentEnd).trim();
-      return content ? `${marker} ${content}` : marker;
-    })
-    .filter(Boolean);
+      const content = segment.slice(contentStart, contentEnd).trim();
+      if (content) expanded.push(`${marker} ${content}`);
+    });
+  }
+
+  return expanded.length ? expanded : [normalized];
 }
 
 function formatBulletLine(pdf, line, maxWidth) {
