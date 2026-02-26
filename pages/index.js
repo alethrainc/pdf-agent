@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import styles from '../styles/Home.module.css';
 
 const DEFAULT_LOGO_URL = 'https://plusbrand.com/wp-content/uploads/2025/10/Copia-de-ALETHRA_Logo-scaled.png';
@@ -26,6 +26,7 @@ async function fileToBase64(file) {
 }
 
 export default function Home() {
+  const previewPageRef = useRef(null);
   const [fileName, setFileName] = useState('');
   const [upload, setUpload] = useState(null);
   const [status, setStatus] = useState('');
@@ -43,6 +44,67 @@ export default function Home() {
     ],
   });
   const [styleOptions, setStyleOptions] = useState(DEFAULT_STYLE_OPTIONS);
+  const logoPreviewSrc = useMemo(() => {
+    if (!logoUrl) return '';
+    return `/api/logo-proxy?url=${encodeURIComponent(logoUrl)}`;
+  }, [logoUrl]);
+
+  function exportPreviewViaPrint() {
+    if (!previewPageRef.current) {
+      throw new Error('Live preview is not ready yet.');
+    }
+
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=950,height=1200');
+    if (!printWindow) {
+      throw new Error('Popup blocked. Please allow popups to export the live preview PDF.');
+    }
+
+    const printableMarkup = previewPageRef.current.innerHTML;
+    const documentTitle = fileName || upload?.name?.replace(/\.[^/.]+$/, '') || 'document';
+
+    printWindow.document.write(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${documentTitle}</title>
+    <style>
+      @page { size: letter; margin: 14mm; }
+      body { margin: 0; padding: 0; font-family: Inter, Arial, sans-serif; color: #2a2c31; }
+      .previewPage {
+        border: 1px solid #dbe2f1;
+        border-radius: 12px;
+        background: #fff;
+        padding: 18px;
+        min-height: 280px;
+        box-sizing: border-box;
+      }
+      .previewLogo { max-width: 160px; max-height: 40px; width: auto; margin-bottom: 12px; }
+      .previewFooter {
+        margin-top: 20px;
+        padding-top: 10px;
+        border-top: 1px solid #eef2fa;
+        color: #6f7687;
+        font-size: 0.75rem;
+        display: grid;
+        gap: 4px;
+      }
+      p { white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <div class="previewPage">${printableMarkup}</div>
+    <script>
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          window.print();
+          window.close();
+        }, 150);
+      });
+    </script>
+  </body>
+</html>`);
+    printWindow.document.close();
+  }
 
   async function buildPreviewFromFile(file) {
     if (!file) return;
@@ -117,28 +179,33 @@ export default function Home() {
         data: base64,
       };
 
-      const response = await fetch('/api/generate-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName, uploadedFile, logoUrl, footerMain, footerSub, styleOptions, codedDocument }),
-      });
+      const extension = upload.name.split('.').pop()?.toLowerCase();
+      if (extension === 'pdf') {
+        const response = await fetch('/api/generate-pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName, uploadedFile }),
+        });
 
-      if (!response.ok) {
-        const payload = await response.json();
-        throw new Error(payload.error || 'Request failed');
+        if (!response.ok) {
+          const payload = await response.json();
+          throw new Error(payload.error || 'Request failed');
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${fileName || upload.name.replace(/\.[^/.]+$/, '') || 'document'}.pdf`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.URL.revokeObjectURL(url);
+        setStatus('Uploaded PDF downloaded successfully.');
+      } else {
+        exportPreviewViaPrint();
+        setStatus('Live preview opened in print mode. Choose “Save as PDF” to export the exact preview.');
       }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `${fileName || upload.name.replace(/\.[^/.]+$/, '') || 'document'}.pdf`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
-
-      setStatus('PDF generated and downloaded successfully.');
     } catch (error) {
       setStatus(error.message);
     } finally {
@@ -252,17 +319,17 @@ export default function Home() {
           </div>
 
           <button type="submit" disabled={busy || buildingPreview}>
-            {buildingPreview ? 'Building coded preview...' : busy ? 'Generating...' : 'Generate PDF'}
+            {buildingPreview ? 'Building coded preview...' : busy ? 'Generating...' : 'Export Live Preview PDF'}
           </button>
         </form>
 
         <section className={styles.previewCard}>
           <p className={styles.previewLabel}>Live preview</p>
-          <div className={styles.previewPage}>
-            {logoUrl && (
+          <div className={styles.previewPage} ref={previewPageRef}>
+            {logoPreviewSrc && (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={logoUrl} alt="Logo preview" className={styles.previewLogo} />
+                <img src={logoPreviewSrc} alt="Logo preview" className={styles.previewLogo} />
               </>
             )}
             {(codedDocument?.blocks || []).map((block, index) => {
