@@ -31,13 +31,14 @@ When configured, DOCX/TXT/RTF/HTML text is polished before PDF generation while 
 
 ## API
 
-`POST /api/generate-pdf`
+`POST /api/extract-document`
+
+Used to extract structured preview blocks from uploaded DOCX/TXT/RTF/HTML files before client-side PDF generation.
 
 Body:
 
 ```json
 {
-  "fileName": "optional-custom-name",
   "uploadedFile": {
     "name": "notes.docx",
     "data": "<base64>"
@@ -45,7 +46,7 @@ Body:
 }
 ```
 
-Returns a PDF binary response.
+Returns JSON with `codedDocument.blocks` used by the browser PDF renderer.
 
 
 ## Logo and footer customization
