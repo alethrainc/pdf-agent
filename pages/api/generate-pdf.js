@@ -5,6 +5,12 @@ const DEFAULT_LOGO_URL =
   'https://plusbrand.com/wp-content/uploads/2025/10/Copia-de-ALETHRA_Logo-scaled.png';
 const DEFAULT_FOOTER_MAIN = '© 2026 ALETHRA™. All rights reserved.';
 const DEFAULT_FOOTER_SUB = 'Confidential – Not for distribution without written authorization.';
+const DEFAULT_STYLE_OPTIONS = {
+  titleFontSize: 30,
+  headingFontSize: 17,
+  bodyFontSize: 11,
+  titleFontWeight: 'thin',
+};
 
 function getExtension(fileName = '') {
   return fileName.split('.').pop()?.toLowerCase() || '';
@@ -221,26 +227,36 @@ function wrapLine(line, maxChars) {
   return lines;
 }
 
-function classifyLineStyle(line, contentIndex) {
+function classifyLineStyle(line, contentIndex, styleOptions = DEFAULT_STYLE_OPTIONS) {
   const trimmed = line.trim();
   const isFirstLine = contentIndex === 0;
   const isNumberedHeading = /^\d+[\.)]\s+/.test(trimmed);
   const isUpperHeading = trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed) && trimmed.length <= 72;
   const isTitleCaseHeading = /^[A-Z][A-Za-z0-9'’&:,()\-\s]+$/.test(trimmed) && trimmed.length <= 68 && !trimmed.endsWith('.');
+  const titleFont = styleOptions.titleFontWeight === 'thin' ? 'F4' : 'F3';
+  const titleSize = Number(styleOptions.titleFontSize) || DEFAULT_STYLE_OPTIONS.titleFontSize;
+  const headingSize = Number(styleOptions.headingFontSize) || DEFAULT_STYLE_OPTIONS.headingFontSize;
+  const bodySize = Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize;
 
   if (isFirstLine) {
-    return { font: 'F3', size: 24, lineHeight: 32, color: '0.13 0.13 0.15' };
+    return { font: titleFont, size: titleSize, lineHeight: Math.round(titleSize * 1.32), color: '0.13 0.13 0.15', centered: true };
   }
 
   if (isNumberedHeading || isUpperHeading || isTitleCaseHeading) {
-    return { font: 'F2', size: 16, lineHeight: 23, color: '0.13 0.13 0.15' };
+    return { font: 'F2', size: headingSize, lineHeight: Math.round(headingSize * 1.44), color: '0.13 0.13 0.15' };
   }
 
-  return { font: 'F1', size: 11, lineHeight: 18, color: '0.22 0.22 0.24' };
+  return { font: 'F1', size: bodySize, lineHeight: Math.round(bodySize * 1.6), color: '0.22 0.22 0.24' };
 }
 
 function buildLineCommand(line, x, y, style) {
   return `${style.color} rg BT /${style.font} ${style.size} Tf ${x.toFixed(2)} ${y.toFixed(2)} Td (${escapePdfText(line)}) Tj ET`;
+}
+
+function getTextX(line, style, pageWidth, defaultX) {
+  if (!style.centered) return defaultX;
+  const approxWidth = line.length * style.size * 0.28;
+  return Math.max(defaultX, (pageWidth - approxWidth) / 2);
 }
 
 function parsePng(buffer) {
@@ -410,6 +426,10 @@ async function textToPdfBuffer(text, options = {}) {
   const marginBottom = 74;
   const maxChars = 74;
   const paragraphGap = 8;
+  const styleOptions = {
+    ...DEFAULT_STYLE_OPTIONS,
+    ...(options.styleOptions || {}),
+  };
 
   const content = sanitizeForPdfText(text);
   const paragraphs = content.split(/\n\n+/).map((paragraph) => paragraph.trimEnd());
@@ -433,9 +453,10 @@ async function textToPdfBuffer(text, options = {}) {
       const wrapped = wrapLine(paragraphLine || ' ', maxChars);
 
       for (const line of wrapped) {
-        const style = classifyLineStyle(line, contentIndex);
+        const style = classifyLineStyle(line, contentIndex, styleOptions);
         if (y < marginBottom) pushNewPage();
-        currentPage.push(buildLineCommand(line, marginLeft, y, style));
+        const x = getTextX(line, style, pageWidth, marginLeft);
+        currentPage.push(buildLineCommand(line, x, y, style));
         y -= style.lineHeight;
         contentIndex += 1;
       }
@@ -465,6 +486,7 @@ async function textToPdfBuffer(text, options = {}) {
   const regularFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
   const mediumFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>');
   const titleFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  const thinTitleFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>');
 
   let logoObjectId = null;
   if (logoImage) {
@@ -487,7 +509,7 @@ async function textToPdfBuffer(text, options = {}) {
 
     const xObjectEntry = logoObjectId ? ` /XObject << /Im1 ${logoObjectId} 0 R >>` : '';
     const pageObjectId = addObject(
-      `<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${regularFontObjectId} 0 R /F2 ${mediumFontObjectId} 0 R /F3 ${titleFontObjectId} 0 R >>${xObjectEntry} >> /Contents ${contentObjectId} 0 R >>`
+      `<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${regularFontObjectId} 0 R /F2 ${mediumFontObjectId} 0 R /F3 ${titleFontObjectId} 0 R /F4 ${thinTitleFontObjectId} 0 R >>${xObjectEntry} >> /Contents ${contentObjectId} 0 R >>`
     );
     pageObjectIds.push(pageObjectId);
   }
@@ -557,7 +579,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { fileName, uploadedFile, logoUrl, footerMain, footerSub } = req.body || {};
+  const { fileName, uploadedFile, logoUrl, footerMain, footerSub, styleOptions } = req.body || {};
 
   if (!uploadedFile?.name || !uploadedFile?.data) {
     return res.status(400).json({ error: 'Please upload a file to convert.' });
@@ -575,6 +597,12 @@ export default async function handler(req, res) {
       logoUrl: logoUrl || DEFAULT_LOGO_URL,
       footerMain: footerMain || DEFAULT_FOOTER_MAIN,
       footerSub: footerSub || DEFAULT_FOOTER_SUB,
+      styleOptions: {
+        titleFontSize: Math.max(18, Math.min(48, Number(styleOptions?.titleFontSize) || DEFAULT_STYLE_OPTIONS.titleFontSize)),
+        headingFontSize: Math.max(12, Math.min(30, Number(styleOptions?.headingFontSize) || DEFAULT_STYLE_OPTIONS.headingFontSize)),
+        bodyFontSize: Math.max(9, Math.min(20, Number(styleOptions?.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize)),
+        titleFontWeight: styleOptions?.titleFontWeight === 'normal' ? 'normal' : 'thin',
+      },
     });
 
     const safeName = getSafeName(fileName || uploadedFile.name || 'document');
