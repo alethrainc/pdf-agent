@@ -9,6 +9,7 @@ const DEFAULT_STYLE_OPTIONS = {
   headingFontSize: 17,
   bodyFontSize: 11,
   titleFontWeight: 'thin',
+  fontScalePercent: 100,
 };
 
 
@@ -67,6 +68,7 @@ async function loadLogoDataUrl(url) {
 }
 
 function getBlockStyle(blockRole, styleOptions) {
+  const scale = Math.max(60, Math.min(140, Number(styleOptions.fontScalePercent) || 100)) / 100;
   const isTitle = blockRole === 'title';
   const isHeading = blockRole === 'heading';
   const fontSize = isTitle
@@ -75,14 +77,16 @@ function getBlockStyle(blockRole, styleOptions) {
       ? Number(styleOptions.headingFontSize) || DEFAULT_STYLE_OPTIONS.headingFontSize
       : Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize;
 
+  const scaledFontSize = fontSize * scale;
+
   return {
-    fontSize,
-    lineHeight: isTitle ? fontSize * 1.32 : isHeading ? fontSize * 1.42 : fontSize * 1.58,
+    fontSize: scaledFontSize,
+    lineHeight: isTitle ? scaledFontSize * 1.32 : isHeading ? scaledFontSize * 1.42 : scaledFontSize * 1.58,
     fontStyle: isTitle
       ? styleOptions.titleFontWeight === 'normal' ? 'bold' : 'normal'
       : isHeading ? 'bold' : 'normal',
     align: isTitle ? 'center' : 'left',
-    paragraphGap: isTitle ? 14 : 10,
+    paragraphGap: (isTitle ? 14 : 10) * scale,
   };
 }
 
@@ -250,8 +254,8 @@ export default function Home() {
           yStart: contentTop,
           align: 'left',
           fontStyle: 'normal',
-          fontSize: Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize,
-          lineHeight: (Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize) * 1.58,
+          fontSize: (Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize) * (Math.max(60, Math.min(140, Number(styleOptions.fontScalePercent) || 100)) / 100),
+          lineHeight: ((Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize) * (Math.max(60, Math.min(140, Number(styleOptions.fontScalePercent) || 100)) / 100)) * 1.58,
         });
       }
 
@@ -309,7 +313,7 @@ export default function Home() {
     <main className={styles.main}>
       <section className={styles.card}>
         <h1>Upload File → PDF</h1>
-        <p>Upload a file and convert it to PDF. Supported preview input: DOCX, TXT, RTF, HTML. PDF export is text-based (copy/paste friendly) with branded page styling.</p>
+        <p>Upload a file and convert it to PDF. Supported preview input: DOCX, TXT, RTF, HTML. PDF export is text-based (copy/paste friendly) with branded page styling and adjustable font scale.</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
           <label htmlFor="upload">Upload a file (or drop below)</label>
@@ -369,6 +373,15 @@ export default function Home() {
           />
 
           <div className={styles.styleGrid}>
+            <label htmlFor="fontScalePercent">Overall font scale (%)</label>
+            <input
+              id="fontScalePercent"
+              type="number"
+              min="60"
+              max="140"
+              value={styleOptions.fontScalePercent}
+              onChange={(event) => setStyleOptions((prev) => ({ ...prev, fontScalePercent: Math.max(60, Math.min(140, Number(event.target.value) || prev.fontScalePercent)) }))}
+            />
             <label htmlFor="titleFontSize">Title size</label>
             <input
               id="titleFontSize"
@@ -429,7 +442,9 @@ export default function Home() {
               if (!text) return null;
               const isTitle = block.role === 'title';
               const isHeading = block.role === 'heading';
-              const fontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
+              const scale = (Math.max(60, Math.min(140, Number(styleOptions.fontScalePercent) || 100))) / 100;
+              const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
+              const fontSize = baseFontSize * scale;
               const fontWeight = isTitle ? (styleOptions.titleFontWeight === 'thin' ? 200 : 500) : isHeading ? 500 : 400;
               return (
                 <p
