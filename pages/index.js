@@ -47,12 +47,23 @@ async function loadLogoDataUrl(url) {
   if (!response.ok) return null;
 
   const blob = await response.blob();
-  return new Promise((resolve) => {
+  const dataUrl = await new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(blob);
   });
+
+  if (!dataUrl) return null;
+
+  const size = await new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve({ width: image.naturalWidth || 1, height: image.naturalHeight || 1 });
+    image.onerror = () => resolve({ width: 1, height: 1 });
+    image.src = dataUrl;
+  });
+
+  return { dataUrl, ...size };
 }
 
 function getBlockStyle(blockRole, styleOptions) {
@@ -202,7 +213,7 @@ export default function Home() {
       const contentTop = 112;
       const contentBottom = pageHeight - 74;
 
-      const logoDataUrl = await loadLogoDataUrl(logoUrl);
+      const logoAsset = await loadLogoDataUrl(logoUrl);
       const preparedBlocks = (codedDocument?.blocks || [])
         .map((block) => {
           const text = block?.text?.trim();
@@ -252,8 +263,10 @@ export default function Home() {
         pdf.setFillColor(211, 31, 45);
         pdf.rect(0, 0, stripeWidth, pageHeight, 'F');
 
-        if (logoDataUrl) {
-          pdf.addImage(logoDataUrl, getImageFormat(logoDataUrl), 54, 40, 135, 34, undefined, 'FAST');
+        if (logoAsset?.dataUrl) {
+          const logoWidth = 135;
+          const logoHeight = (logoAsset.height * logoWidth) / logoAsset.width;
+          pdf.addImage(logoAsset.dataUrl, getImageFormat(logoAsset.dataUrl), 54, 40, logoWidth, logoHeight, undefined, 'FAST');
         }
 
         for (const block of pages[pageIndex]) {
