@@ -113,7 +113,7 @@ async function fileToBase64(file) {
 
 export default function Home() {
   const [fileName, setFileName] = useState('');
-  const [upload, setUpload] = useState(null);
+  const [uploads, setUploads] = useState([]);
   const [status, setStatus] = useState('');
   const [logoUrl, setLogoUrl] = useState(DEFAULT_LOGO_URL);
   const [footerMain, setFooterMain] = useState(DEFAULT_FOOTER_MAIN);
@@ -165,31 +165,35 @@ export default function Home() {
     }
   }
 
-  function handleFileSelect(file) {
-    if (!file) return;
+  function handleFileSelect(fileList) {
+    const selectedFiles = Array.from(fileList || []).slice(0, 10);
+    if (!selectedFiles.length) return;
 
-    setUpload(file);
-    buildPreviewFromFile(file);
-    if (!fileName) {
-      const baseName = file.name.replace(/\.[^/.]+$/, '');
+    setUploads(selectedFiles);
+    buildPreviewFromFile(selectedFiles[0]);
+    if (!fileName && selectedFiles.length === 1) {
+      const baseName = selectedFiles[0].name.replace(/\.[^/.]+$/, '');
       setFileName(baseName);
     }
-    setStatus(`Selected file: ${file.name}`);
+    setStatus(
+      selectedFiles.length > 1
+        ? `Selected ${selectedFiles.length} files. Batch conversion will generate one PDF per file.`
+        : `Selected file: ${selectedFiles[0].name}`,
+    );
   }
 
   function handleDrop(event) {
     event.preventDefault();
     setDragActive(false);
-    const dropped = event.dataTransfer.files?.[0];
-    handleFileSelect(dropped);
+    handleFileSelect(event.dataTransfer.files);
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
     setStatus('');
 
-    if (!upload) {
-      setStatus('Drop or upload a file to convert.');
+    if (!uploads.length) {
+      setStatus('Drop or upload at least one file to convert.');
       return;
     }
 
@@ -200,107 +204,135 @@ export default function Home() {
       const { jsPDF } = window.jspdf || {};
       if (!jsPDF) throw new Error('Unable to initialize PDF exporter.');
 
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'pt',
-        format: 'letter',
-      });
-
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const stripeWidth = 22;
-      const textLeft = 72;
-      const textRight = pageWidth - 46;
-      const textWidth = textRight - textLeft;
-      const footerY = pageHeight - 42;
-      const contentTop = 112;
-      const contentBottom = pageHeight - 74;
-
       const logoAsset = await loadLogoDataUrl(logoUrl);
-      const preparedBlocks = (codedDocument?.blocks || [])
-        .map((block) => {
-          const text = block?.text?.trim();
-          if (!text) return null;
-          const style = getBlockStyle(block.role, styleOptions);
-          pdf.setFont('helvetica', style.fontStyle);
-          pdf.setFontSize(style.fontSize);
-          const lines = pdf.splitTextToSize(text, style.align === 'center' ? textWidth * 0.75 : textWidth);
-          return { ...style, lines, text };
-        })
-        .filter(Boolean);
 
-      const pages = [];
-      let currentPage = [];
-      let y = contentTop;
-
-      for (const block of preparedBlocks) {
-        const blockHeight = block.lines.length * block.lineHeight + block.paragraphGap;
-
-        if (y + blockHeight > contentBottom && currentPage.length) {
-          pages.push(currentPage);
-          currentPage = [];
-          y = contentTop;
-        }
-
-        currentPage.push({ ...block, yStart: y });
-        y += blockHeight;
-      }
-
-      if (!currentPage.length) {
-        const scaledBodySize = getBlockStyle('body', styleOptions).fontSize;
-        currentPage.push({
-          ...getBlockStyle('body', styleOptions),
-          lines: [' '],
-          yStart: contentTop,
-          align: 'left',
-          fontStyle: 'normal',
-          fontSize: scaledBodySize,
-          lineHeight: scaledBodySize * 1.58,
+      for (let fileIndex = 0; fileIndex < uploads.length; fileIndex += 1) {
+        const activeUpload = uploads[fileIndex];
+        const response = await fetch('/api/extract-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uploadedFile: {
+              name: activeUpload.name,
+              mimeType: activeUpload.type || 'application/octet-stream',
+              data: await fileToBase64(activeUpload),
+            },
+          }),
         });
-      }
 
-      pages.push(currentPage);
-
-      for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
-        if (pageIndex > 0) pdf.addPage();
-
-        pdf.setFillColor(211, 31, 45);
-        pdf.rect(0, 0, stripeWidth, pageHeight, 'F');
-
-        if (logoAsset?.dataUrl) {
-          const logoWidth = 135;
-          const logoHeight = (logoAsset.height * logoWidth) / logoAsset.width;
-          pdf.addImage(logoAsset.dataUrl, getImageFormat(logoAsset.dataUrl), 54, 40, logoWidth, logoHeight, undefined, 'FAST');
+        if (!response.ok) {
+          const payload = await response.json();
+          throw new Error(payload.error || `Unable to extract content from ${activeUpload.name}.`);
         }
 
-        for (const block of pages[pageIndex]) {
-          pdf.setFont('helvetica', block.fontStyle);
-          pdf.setFontSize(block.fontSize);
-          pdf.setTextColor(0, 0, 0);
+        const payload = await response.json();
+        const extractedBlocks = payload?.codedDocument?.blocks || codedDocument?.blocks || [];
 
-          let lineY = block.yStart;
-          for (const line of block.lines) {
-            if (block.align === 'center') {
-              pdf.text(line, pageWidth / 2, lineY, { align: 'center' });
-            } else {
-              pdf.text(line, textLeft, lineY);
-            }
-            lineY += block.lineHeight;
+        const pdf = new jsPDF({
+          orientation: 'portrait',
+          unit: 'pt',
+          format: 'letter',
+        });
+
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const stripeWidth = 22;
+        const textLeft = 72;
+        const textRight = pageWidth - 46;
+        const textWidth = textRight - textLeft;
+        const footerY = pageHeight - 42;
+        const contentTop = 112;
+        const contentBottom = pageHeight - 74;
+
+        const preparedBlocks = extractedBlocks
+          .map((block) => {
+            const text = block?.text?.trim();
+            if (!text) return null;
+            const style = getBlockStyle(block.role, styleOptions);
+            pdf.setFont('helvetica', style.fontStyle);
+            pdf.setFontSize(style.fontSize);
+            const lines = pdf.splitTextToSize(text, style.align === 'center' ? textWidth * 0.75 : textWidth);
+            return { ...style, lines };
+          })
+          .filter(Boolean);
+
+        const pages = [];
+        let currentPage = [];
+        let y = contentTop;
+
+        for (const block of preparedBlocks) {
+          const blockHeight = block.lines.length * block.lineHeight + block.paragraphGap;
+
+          if (y + blockHeight > contentBottom && currentPage.length) {
+            pages.push(currentPage);
+            currentPage = [];
+            y = contentTop;
           }
+
+          currentPage.push({ ...block, yStart: y });
+          y += blockHeight;
         }
 
-        pdf.setFont('helvetica', 'normal');
-        const footerFontSize = Math.max(8, Number((10 * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2)));
-        pdf.setFontSize(footerFontSize);
-        pdf.setTextColor(0, 0, 0);
-        pdf.text(footerMain || DEFAULT_FOOTER_MAIN, 72, footerY);
-        pdf.text(footerSub || DEFAULT_FOOTER_SUB, 72, footerY + 17);
-        pdf.text(`Page ${pageIndex + 1} of ${pages.length}`, pageWidth - 72, footerY + 17, { align: 'right' });
+        if (!currentPage.length) {
+          const scaledBodySize = getBlockStyle('body', styleOptions).fontSize;
+          currentPage.push({
+            ...getBlockStyle('body', styleOptions),
+            lines: [' '],
+            yStart: contentTop,
+            align: 'left',
+            fontStyle: 'normal',
+            fontSize: scaledBodySize,
+            lineHeight: scaledBodySize * 1.58,
+          });
+        }
+
+        pages.push(currentPage);
+
+        for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+          if (pageIndex > 0) pdf.addPage();
+
+          pdf.setFillColor(211, 31, 45);
+          pdf.rect(0, 0, stripeWidth, pageHeight, 'F');
+
+          if (logoAsset?.dataUrl) {
+            const logoWidth = 135;
+            const logoHeight = (logoAsset.height * logoWidth) / logoAsset.width;
+            pdf.addImage(logoAsset.dataUrl, getImageFormat(logoAsset.dataUrl), 54, 40, logoWidth, logoHeight, undefined, 'FAST');
+          }
+
+          for (const block of pages[pageIndex]) {
+            pdf.setFont('helvetica', block.fontStyle);
+            pdf.setFontSize(block.fontSize);
+            pdf.setTextColor(0, 0, 0);
+
+            let lineY = block.yStart;
+            for (const line of block.lines) {
+              if (block.align === 'center') {
+                pdf.text(line, pageWidth / 2, lineY, { align: 'center' });
+              } else {
+                pdf.text(line, textLeft, lineY);
+              }
+              lineY += block.lineHeight;
+            }
+          }
+
+          pdf.setFont('helvetica', 'normal');
+          const footerFontSize = Math.max(8, Number((10 * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2)));
+          pdf.setFontSize(footerFontSize);
+          pdf.setTextColor(0, 0, 0);
+          pdf.text(footerMain || DEFAULT_FOOTER_MAIN, 72, footerY);
+          pdf.text(footerSub || DEFAULT_FOOTER_SUB, 72, footerY + 17);
+          pdf.text(`Page ${pageIndex + 1} of ${pages.length}`, pageWidth - 72, footerY + 17, { align: 'right' });
+        }
+
+        const baseName = activeUpload.name.replace(/\.[^/.]+$/, '') || 'document';
+        const outputName = uploads.length === 1 && fileName
+          ? `${fileName}.pdf`
+          : `${baseName}.pdf`;
+        pdf.save(outputName);
       }
 
-      const outputName = `${fileName || upload.name.replace(/\.[^/.]+$/, '') || 'document'}.pdf`;
-      pdf.save(outputName);
-      setStatus('PDF generated and downloaded successfully.');
+      setStatus(`Batch complete. Generated ${uploads.length} PDF${uploads.length === 1 ? '' : 's'}.`);
     } catch (error) {
       setStatus(error.message || 'Unable to export PDF.');
     } finally {
@@ -314,15 +346,16 @@ export default function Home() {
     <main className={styles.main}>
       <section className={styles.card}>
         <h1>Upload File → PDF</h1>
-        <p>Upload a file and convert it to PDF. Supported preview input: DOCX, TXT, RTF, HTML. PDF export is text-based (copy/paste friendly) with branded page styling.</p>
+        <p>Upload up to 10 files and convert each to PDF in one batch. Supported preview input: DOCX, TXT, RTF, HTML. PDF export is text-based (copy/paste friendly) with branded page styling.</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <label htmlFor="upload">Upload a file (or drop below)</label>
+          <label htmlFor="upload">Upload up to 10 files (or drop below)</label>
           <input
             id="upload"
             type="file"
             accept=".docx,.txt,.rtf,.html,.htm"
-            onChange={(event) => handleFileSelect(event.target.files?.[0])}
+            onChange={(event) => handleFileSelect(event.target.files)}
+            multiple
             required
           />
 
@@ -335,10 +368,10 @@ export default function Home() {
             onDragLeave={() => setDragActive(false)}
             onDrop={handleDrop}
           >
-            {upload ? `Ready to convert: ${upload.name}` : 'Drag & drop a file here'}
+            {uploads.length ? `Ready to convert ${uploads.length} file${uploads.length === 1 ? '' : 's'}` : 'Drag & drop up to 10 files here'}
           </div>
 
-          <label htmlFor="fileName">Optional output file name</label>
+          <label htmlFor="fileName">Optional output file name (single file only)</label>
           <input
             id="fileName"
             type="text"
