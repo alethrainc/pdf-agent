@@ -99,6 +99,44 @@ function getImageFormat(dataUrl) {
   return 'PNG';
 }
 
+function splitInlineListItems(line) {
+  const normalized = String(line || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return [''];
+
+  const bulletMatches = [...normalized.matchAll(/(?:^|\s)([•\-\*]|\d+[\.)])\s+/g)];
+  if (bulletMatches.length <= 1) return [normalized];
+
+  return bulletMatches
+    .map((match, index) => {
+      const contentStart = match.index + match[0].length;
+      const contentEnd = index + 1 < bulletMatches.length ? bulletMatches[index + 1].index : normalized.length;
+      const marker = match[1];
+      const content = normalized.slice(contentStart, contentEnd).trim();
+      return content ? `${marker} ${content}` : marker;
+    })
+    .filter(Boolean);
+}
+
+function formatBulletLine(pdf, line, maxWidth) {
+  const bulletMatch = line.match(/^([•\-\*]|\d+[\.)])\s+(.*)$/);
+  if (!bulletMatch) {
+    const wrapped = pdf.splitTextToSize(line, maxWidth);
+    return wrapped.length ? wrapped : [''];
+  }
+
+  const marker = `${bulletMatch[1]} `;
+  const markerIndent = pdf.getTextWidth(marker);
+  const continuationPadding = ' '.repeat(Math.max(2, marker.length));
+  const availableWidth = Math.max(24, maxWidth - markerIndent);
+  const wrappedContent = pdf.splitTextToSize(bulletMatch[2], availableWidth);
+
+  if (!wrappedContent.length) return [marker.trimEnd()];
+
+  return wrappedContent.map((part, index) => (
+    index === 0 ? `${marker}${part}` : `${continuationPadding}${part}`
+  ));
+}
+
 function formatBlockLinesForPdf(pdf, text, maxWidth) {
   const rawLines = String(text || '').split(/\r?\n/);
   const outputLines = [];
@@ -110,31 +148,16 @@ function formatBlockLinesForPdf(pdf, text, maxWidth) {
       continue;
     }
 
-    const bulletMatch = trimmed.match(/^(?:[•\-\*]|\d+[\.)])\s+(.*)$/);
-    if (!bulletMatch) {
-      const wrapped = pdf.splitTextToSize(trimmed, maxWidth);
-      outputLines.push(...(wrapped.length ? wrapped : ['']));
-      continue;
-    }
-
-    const bulletPrefix = `${trimmed.slice(0, trimmed.length - bulletMatch[1].length)}`;
-    const bulletIndent = pdf.getTextWidth(bulletPrefix);
-    const availableWidth = Math.max(24, maxWidth - bulletIndent);
-    const wrappedBulletContent = pdf.splitTextToSize(bulletMatch[1], availableWidth);
-
-    if (!wrappedBulletContent.length) {
-      outputLines.push(bulletPrefix.trimEnd());
-      continue;
-    }
-
-    outputLines.push(`${bulletPrefix}${wrappedBulletContent[0]}`);
-    for (let index = 1; index < wrappedBulletContent.length; index += 1) {
-      outputLines.push(`${' '.repeat(bulletPrefix.length)}${wrappedBulletContent[index]}`);
+    const logicalLines = splitInlineListItems(trimmed);
+    for (const logicalLine of logicalLines) {
+      const wrappedLines = formatBulletLine(pdf, logicalLine, maxWidth);
+      outputLines.push(...wrappedLines);
     }
   }
 
   return outputLines;
 }
+
 
 async function fileToBase64(file) {
   const buffer = await file.arrayBuffer();
