@@ -344,9 +344,14 @@ export default function Home() {
 
   return (
     <main className={styles.main}>
+      <div className={styles.bgGlowOne} />
+      <div className={styles.bgGlowTwo} />
       <section className={styles.card}>
-        <h1>Upload File → PDF</h1>
-        <p>Upload up to 10 files and convert each to PDF in one batch. Supported preview input: DOCX, TXT, RTF, HTML. PDF export is text-based (copy/paste friendly) with branded page styling.</p>
+        <div className={styles.headerWrap}>
+          <p className={styles.kicker}>Premium document engine</p>
+          <h1>Upload File → PDF</h1>
+          <p className={styles.subtitle}>Upload up to 10 files and convert each to PDF in one batch. Supported preview input: DOCX, TXT, RTF, HTML. PDF export is text-based (copy/paste friendly) with branded page styling.</p>
+        </div>
 
         <form onSubmit={handleSubmit} className={styles.form}>
           <label htmlFor="upload">Upload up to 10 files (or drop below)</label>
@@ -464,7 +469,10 @@ export default function Home() {
         </form>
 
         <section className={styles.previewCard}>
-          <p className={styles.previewLabel}>Live preview</p>
+          <div className={styles.previewHeaderRow}>
+            <p className={styles.previewLabel}>Live preview</p>
+            <span className={styles.previewBadge}>Letter • Branded</span>
+          </div>
           <div className={styles.previewPage}>
             {logoUrl && (
               <>
