@@ -116,9 +116,13 @@ function extractZipEntry(buffer, targetName) {
 }
 
 function extractParagraphText(paragraphXml) {
-  const runs = paragraphXml.match(/<w:t\b[^>]*>[\s\S]*?<\/w:t>/g) || [];
-  const combined = runs
-    .map((run) => run.replace(/<w:t\b[^>]*>|<\/w:t>/g, ''))
+  const paragraphWithInlineBreaks = paragraphXml
+    .replace(/<w:(br|cr)\b[^>]*\/>/g, '\n')
+    .replace(/<w:tab\b[^>]*\/>/g, '\t');
+
+  const parts = paragraphWithInlineBreaks.match(/<w:t\b[^>]*>[\s\S]*?<\/w:t>|\n|\t/g) || [];
+  const combined = parts
+    .map((part) => (part === '\n' || part === '\t' ? part : part.replace(/<w:t\b[^>]*>|<\/w:t>/g, '')))
     .join('')
     .trim();
 
@@ -160,7 +164,7 @@ function textToCodedDocument(text) {
   const paragraphs = sanitizeText(text).split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
   const blocks = paragraphs.map((paragraph, index) => ({
     role: inferBlockRole(paragraph, index),
-    text: paragraph,
+    text: index === 0 ? paragraph.replace(/\s*\n+\s*/g, ' ') : paragraph,
   }));
 
   if (!blocks.length) return { blocks: [{ role: 'body', text: ' ' }] };
