@@ -68,3 +68,57 @@
 .card details {
   margin-top: 18px;
 }
+
+
+.form select {
+  border: 1px solid #d4d8e5;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 0.95rem;
+  background: #fff;
+}
+
+.styleGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.previewCard {
+  border-top: 1px solid #e8ebf3;
+  padding-top: 16px;
+}
+
+.previewLabel {
+  font-size: 0.85rem;
+  color: #556080;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.previewPage {
+  margin-top: 8px;
+  border: 1px solid #dbe2f1;
+  border-radius: 12px;
+  background: #fff;
+  padding: 18px;
+  min-height: 280px;
+}
+
+.previewLogo {
+  max-width: 160px;
+  max-height: 40px;
+  width: auto;
+  margin-bottom: 12px;
+}
+
+.previewFooter {
+  margin-top: 20px;
+  padding-top: 10px;
+  border-top: 1px solid #eef2fa;
+  color: #6f7687;
+  font-size: 0.75rem;
+  display: grid;
+  gap: 4px;
+}

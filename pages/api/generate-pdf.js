@@ -5,6 +5,12 @@ const DEFAULT_LOGO_URL =
   'https://plusbrand.com/wp-content/uploads/2025/10/Copia-de-ALETHRA_Logo-scaled.png';
 const DEFAULT_FOOTER_MAIN = '© 2026 ALETHRA™. All rights reserved.';
 const DEFAULT_FOOTER_SUB = 'Confidential – Not for distribution without written authorization.';
+const DEFAULT_STYLE_OPTIONS = {
+  titleFontSize: 30,
+  headingFontSize: 17,
+  bodyFontSize: 11,
+  titleFontWeight: 'thin',
+};
 
 function getExtension(fileName = '') {
   return fileName.split('.').pop()?.toLowerCase() || '';
@@ -31,9 +37,11 @@ function htmlToText(html) {
     html
       .replace(/<style[\s\S]*?<\/style>/gi, '')
       .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<h[1-6]\b[^>]*>/gi, '\n\n')
+      .replace(/<\/h[1-6]>/gi, '\n\n')
       .replace(/<li\b[^>]*>/gi, '\n• ')
+      .replace(/<\/(p|div|section|article|ul|ol)>/gi, '\n\n')
       .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n\n')
       .replace(/<[^>]+>/g, ' ')
       .replace(/[ \t]+/g, ' ')
       .replace(/\n{3,}/g, '\n\n')
@@ -188,20 +196,47 @@ File: ${fileName || 'uploaded document'}\n\n${text}`;
 
 function sanitizeForPdfText(text) {
   return text
-    .replace(/[•◦▪●]/g, '• ')
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
     .replace(/\u00A0/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function inferBlockRole(paragraph, index) {
+  const trimmed = paragraph.trim();
+  if (!trimmed) return 'body';
+  if (index === 0) return 'title';
+
+  const isNumberedHeading = /^\d+[\.)]\s+/.test(trimmed);
+  const isUpperHeading = trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed) && trimmed.length <= 72;
+  const isTitleCaseHeading = /^[A-Z][A-Za-z0-9'’&:,()\-\s]+$/.test(trimmed) && trimmed.length <= 68 && !trimmed.endsWith('.');
+  return isNumberedHeading || isUpperHeading || isTitleCaseHeading ? 'heading' : 'body';
+}
+
+function textToCodedDocument(text) {
+  const content = sanitizeForPdfText(text);
+  const paragraphs = content.split(/\n\n+/).map((paragraph) => paragraph.trim()).filter(Boolean);
+  const blocks = paragraphs.map((paragraph, index) => ({
+    role: inferBlockRole(paragraph, index),
+    text: paragraph,
+  }));
+
+  if (!blocks.length) {
+    return { blocks: [{ role: 'body', text: ' ' }] };
+  }
+
+  return { blocks };
 }
 
 function escapePdfText(text) {
   return text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
 
+function getVisualLength(value) {
+  return Array.from(value || '').reduce((total, char) => total + (char.codePointAt(0) > 255 ? 1.7 : 1), 0);
+}
+
 function wrapLine(line, maxChars) {
-  if (line.length <= maxChars) return [line];
+  if (getVisualLength(line) <= maxChars) return [line];
 
   const words = line.split(/\s+/);
   const lines = [];
@@ -209,7 +244,7 @@ function wrapLine(line, maxChars) {
 
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length > maxChars) {
+    if (getVisualLength(candidate) > maxChars) {
       if (current) lines.push(current);
       current = word;
     } else {
@@ -221,26 +256,31 @@ function wrapLine(line, maxChars) {
   return lines;
 }
 
-function classifyLineStyle(line, contentIndex) {
-  const trimmed = line.trim();
-  const isFirstLine = contentIndex === 0;
-  const isNumberedHeading = /^\d+[\.)]\s+/.test(trimmed);
-  const isUpperHeading = trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed) && trimmed.length <= 72;
-  const isTitleCaseHeading = /^[A-Z][A-Za-z0-9'’&:,()\-\s]+$/.test(trimmed) && trimmed.length <= 68 && !trimmed.endsWith('.');
+function classifyLineStyle(role, styleOptions = DEFAULT_STYLE_OPTIONS) {
+  const titleFont = styleOptions.titleFontWeight === 'thin' ? 'F4' : 'F3';
+  const titleSize = Number(styleOptions.titleFontSize) || DEFAULT_STYLE_OPTIONS.titleFontSize;
+  const headingSize = Number(styleOptions.headingFontSize) || DEFAULT_STYLE_OPTIONS.headingFontSize;
+  const bodySize = Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize;
 
-  if (isFirstLine) {
-    return { font: 'F3', size: 24, lineHeight: 32, color: '0.13 0.13 0.15' };
+  if (role === 'title') {
+    return { font: titleFont, size: titleSize, lineHeight: Math.round(titleSize * 1.32), color: '0 0 0', centered: true };
   }
 
-  if (isNumberedHeading || isUpperHeading || isTitleCaseHeading) {
-    return { font: 'F2', size: 16, lineHeight: 23, color: '0.13 0.13 0.15' };
+  if (role === 'heading') {
+    return { font: 'F2', size: headingSize, lineHeight: Math.round(headingSize * 1.44), color: '0 0 0' };
   }
 
-  return { font: 'F1', size: 11, lineHeight: 18, color: '0.22 0.22 0.24' };
+  return { font: 'F1', size: bodySize, lineHeight: Math.round(bodySize * 1.6), color: '0 0 0' };
 }
 
 function buildLineCommand(line, x, y, style) {
   return `${style.color} rg BT /${style.font} ${style.size} Tf ${x.toFixed(2)} ${y.toFixed(2)} Td (${escapePdfText(line)}) Tj ET`;
+}
+
+function getTextX(line, style, pageWidth, defaultX) {
+  if (!style.centered) return defaultX;
+  const approxWidth = getVisualLength(line) * style.size * 0.28;
+  return Math.max(defaultX, (pageWidth - approxWidth) / 2);
 }
 
 function parsePng(buffer) {
@@ -368,7 +408,7 @@ function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeig
 
   const commands = [
     'q',
-    '0.85 0.11 0.16 rg',
+    '0.83 0.12 0.18 rg',
     `0 0 ${leftRailWidth} ${pageHeight} re f`,
     'Q',
   ];
@@ -382,42 +422,44 @@ function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeig
   }
 
   commands.push(
-    buildLineCommand(footerMain, 46, footerY + 10, {
+    buildLineCommand(footerMain, 72, footerY + 10, {
       font: 'F1',
-      size: 9,
-      color: '0.35 0.35 0.35',
+      size: 10,
+      color: '0 0 0',
     }),
-    buildLineCommand(footerSub, 46, footerY - 7, {
+    buildLineCommand(footerSub, 72, footerY - 7, {
       font: 'F1',
-      size: 8,
-      color: '0.35 0.35 0.35',
+      size: 10,
+      color: '0 0 0',
     }),
-    buildLineCommand(pageLabel, pageWidth - 90, footerY - 7, {
+    buildLineCommand(pageLabel, pageWidth - 120, footerY - 7, {
       font: 'F1',
-      size: 8,
-      color: '0.35 0.35 0.35',
+      size: 10,
+      color: '0 0 0',
     })
   );
 
   return commands;
 }
 
-async function textToPdfBuffer(text, options = {}) {
+async function codedDocumentToPdfBuffer(codedDocument, options = {}) {
   const pageWidth = 612;
   const pageHeight = 792;
   const marginLeft = 72;
-  const marginTop = options.logoUrl ? 116 : 72;
-  const marginBottom = 74;
-  const maxChars = 74;
+  const marginTop = options.logoUrl ? 112 : 72;
+  const marginBottom = 70;
+  const maxChars = 84;
   const paragraphGap = 8;
+  const styleOptions = {
+    ...DEFAULT_STYLE_OPTIONS,
+    ...(options.styleOptions || {}),
+  };
 
-  const content = sanitizeForPdfText(text);
-  const paragraphs = content.split(/\n\n+/).map((paragraph) => paragraph.trimEnd());
+  const blocks = codedDocument?.blocks?.length ? codedDocument.blocks : [{ role: 'body', text: ' ' }];
 
   const pages = [];
   let currentPage = [];
   let y = pageHeight - marginTop;
-  let contentIndex = 0;
 
   const pushNewPage = () => {
     if (currentPage.length) pages.push(currentPage);
@@ -425,23 +467,23 @@ async function textToPdfBuffer(text, options = {}) {
     y = pageHeight - marginTop;
   };
 
-  for (let paragraphIndex = 0; paragraphIndex < paragraphs.length; paragraphIndex += 1) {
-    const paragraph = paragraphs[paragraphIndex];
-    const paragraphLines = (paragraph || ' ').split(/\r?\n/);
+  for (let paragraphIndex = 0; paragraphIndex < blocks.length; paragraphIndex += 1) {
+    const block = blocks[paragraphIndex];
+    const paragraphLines = (block.text || ' ').split(/\r?\n/);
 
     for (const paragraphLine of paragraphLines) {
       const wrapped = wrapLine(paragraphLine || ' ', maxChars);
 
       for (const line of wrapped) {
-        const style = classifyLineStyle(line, contentIndex);
+        const style = classifyLineStyle(block.role || 'body', styleOptions);
         if (y < marginBottom) pushNewPage();
-        currentPage.push(buildLineCommand(line, marginLeft, y, style));
+        const x = getTextX(line, style, pageWidth, marginLeft);
+        currentPage.push(buildLineCommand(line, x, y, style));
         y -= style.lineHeight;
-        contentIndex += 1;
       }
     }
 
-    if (paragraphIndex < paragraphs.length - 1) y -= paragraphGap;
+    if (paragraphIndex < blocks.length - 1) y -= paragraphGap;
   }
 
   if (currentPage.length === 0) {
@@ -463,8 +505,9 @@ async function textToPdfBuffer(text, options = {}) {
   };
 
   const regularFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
-  const mediumFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>');
+  const mediumFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
   const titleFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  const thinTitleFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
 
   let logoObjectId = null;
   if (logoImage) {
@@ -487,7 +530,7 @@ async function textToPdfBuffer(text, options = {}) {
 
     const xObjectEntry = logoObjectId ? ` /XObject << /Im1 ${logoObjectId} 0 R >>` : '';
     const pageObjectId = addObject(
-      `<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${regularFontObjectId} 0 R /F2 ${mediumFontObjectId} 0 R /F3 ${titleFontObjectId} 0 R >>${xObjectEntry} >> /Contents ${contentObjectId} 0 R >>`
+      `<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${regularFontObjectId} 0 R /F2 ${mediumFontObjectId} 0 R /F3 ${titleFontObjectId} 0 R /F4 ${thinTitleFontObjectId} 0 R >>${xObjectEntry} >> /Contents ${contentObjectId} 0 R >>`
     );
     pageObjectIds.push(pageObjectId);
   }
@@ -522,33 +565,15 @@ async function textToPdfBuffer(text, options = {}) {
   return Buffer.from(pdf, 'binary');
 }
 
-async function convertUploadedFile(uploadedFile, options) {
+async function extractFormattedText(uploadedFile) {
   const rawBuffer = Buffer.from(uploadedFile.data, 'base64');
   const extension = getExtension(uploadedFile.name);
 
-  if (extension === 'pdf') return rawBuffer;
-
-  if (extension === 'docx') {
-    const text = await formatTextWithAI(docxToText(rawBuffer), uploadedFile.name);
-    return textToPdfBuffer(text, options);
-  }
-
-  if (extension === 'txt') {
-    const text = await formatTextWithAI(rawBuffer.toString('utf8'), uploadedFile.name);
-    return textToPdfBuffer(text, options);
-  }
-
-  if (extension === 'rtf') {
-    const text = await formatTextWithAI(rtfToText(rawBuffer.toString('utf8')), uploadedFile.name);
-    return textToPdfBuffer(text, options);
-  }
-
-  if (extension === 'html' || extension === 'htm') {
-    const text = await formatTextWithAI(htmlToText(rawBuffer.toString('utf8')), uploadedFile.name);
-    return textToPdfBuffer(text, options);
-  }
-
-  throw new Error('Unsupported file type. Upload PDF, DOCX, TXT, RTF, or HTML.');
+  if (extension === 'docx') return docxToText(rawBuffer);
+  if (extension === 'txt') return rawBuffer.toString('utf8');
+  if (extension === 'rtf') return rtfToText(rawBuffer.toString('utf8'));
+  if (extension === 'html' || extension === 'htm') return htmlToText(rawBuffer.toString('utf8'));
+  throw new Error('Preview is available for DOCX, TXT, RTF, and HTML files.');
 }
 
 export default async function handler(req, res) {
@@ -557,7 +582,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { fileName, uploadedFile, logoUrl, footerMain, footerSub } = req.body || {};
+  const { fileName, uploadedFile, logoUrl, footerMain, footerSub, styleOptions, previewOnly, codedDocument } = req.body || {};
 
   if (!uploadedFile?.name || !uploadedFile?.data) {
     return res.status(400).json({ error: 'Please upload a file to convert.' });
@@ -571,10 +596,38 @@ export default async function handler(req, res) {
   }
 
   try {
-    const pdfBuffer = await convertUploadedFile(uploadedFile, {
+    if (previewOnly) {
+      if (extension === 'pdf') {
+        return res.status(400).json({ error: 'Live preview is not available for PDF uploads.' });
+      }
+
+      const previewText = await extractFormattedText(uploadedFile);
+      return res.status(200).json({ codedDocument: textToCodedDocument(previewText) });
+    }
+
+    if (extension === 'pdf') {
+      const rawPdf = Buffer.from(uploadedFile.data, 'base64');
+      const safeName = getSafeName(fileName || uploadedFile.name || 'document');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}.pdf"`);
+      return res.status(200).send(rawPdf);
+    }
+
+    const finalCodedDocument = codedDocument?.blocks?.length
+      ? codedDocument
+      : textToCodedDocument(await extractFormattedText(uploadedFile));
+
+
+    const styledPdfBuffer = await codedDocumentToPdfBuffer(finalCodedDocument, {
       logoUrl: logoUrl || DEFAULT_LOGO_URL,
       footerMain: footerMain || DEFAULT_FOOTER_MAIN,
       footerSub: footerSub || DEFAULT_FOOTER_SUB,
+      styleOptions: {
+        titleFontSize: Math.max(18, Math.min(48, Number(styleOptions?.titleFontSize) || DEFAULT_STYLE_OPTIONS.titleFontSize)),
+        headingFontSize: Math.max(12, Math.min(30, Number(styleOptions?.headingFontSize) || DEFAULT_STYLE_OPTIONS.headingFontSize)),
+        bodyFontSize: Math.max(9, Math.min(20, Number(styleOptions?.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize)),
+        titleFontWeight: styleOptions?.titleFontWeight === 'normal' ? 'normal' : 'thin',
+      },
     });
 
     const safeName = getSafeName(fileName || uploadedFile.name || 'document');
@@ -582,7 +635,7 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}.pdf"`);
 
-    return res.status(200).send(pdfBuffer);
+    return res.status(200).send(styledPdfBuffer);
   } catch (error) {
     return res.status(500).json({ error: error?.message || 'Unable to generate PDF.' });
   }
