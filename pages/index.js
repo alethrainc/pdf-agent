@@ -99,6 +99,76 @@ function getImageFormat(dataUrl) {
   return 'PNG';
 }
 
+function splitInlineListItems(line) {
+  const normalized = String(line || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return [''];
+
+  const prepared = normalized.replace(/([^\s])([•●▪◦])/g, '$1 $2');
+  const bulletMatches = [...prepared.matchAll(/[•●▪◦]\s+/g)];
+  if (!bulletMatches.length) return [prepared];
+
+  const segments = [];
+  const firstIndex = bulletMatches[0].index || 0;
+
+  if (firstIndex > 0) {
+    const prefix = prepared.slice(0, firstIndex).trim();
+    if (prefix) segments.push(prefix);
+  }
+
+  for (let index = 0; index < bulletMatches.length; index += 1) {
+    const match = bulletMatches[index];
+    const marker = match[0].trim();
+    const contentStart = (match.index || 0) + match[0].length;
+    const contentEnd = index + 1 < bulletMatches.length ? (bulletMatches[index + 1].index || 0) : prepared.length;
+    const content = prepared.slice(contentStart, contentEnd).trim();
+    if (content) segments.push(`${marker} ${content}`);
+  }
+
+  return segments.length ? segments : [prepared];
+}
+
+function formatBulletLine(pdf, line, maxWidth) {
+  const bulletMatch = line.match(/^([•●▪◦\-\*]|\d+[\.)])\s+(.*)$/);
+  if (!bulletMatch) {
+    const wrapped = pdf.splitTextToSize(line, maxWidth);
+    return wrapped.length ? wrapped : [''];
+  }
+
+  const marker = `${bulletMatch[1]} `;
+  const markerIndent = pdf.getTextWidth(marker);
+  const continuationPadding = ' '.repeat(Math.max(2, marker.length));
+  const availableWidth = Math.max(24, maxWidth - markerIndent);
+  const wrappedContent = pdf.splitTextToSize(bulletMatch[2], availableWidth);
+
+  if (!wrappedContent.length) return [marker.trimEnd()];
+
+  return wrappedContent.map((part, index) => (
+    index === 0 ? `${marker}${part}` : `${continuationPadding}${part}`
+  ));
+}
+
+function formatBlockLinesForPdf(pdf, text, maxWidth) {
+  const rawLines = String(text || '').split(/\r?\n/);
+  const outputLines = [];
+
+  for (const rawLine of rawLines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      outputLines.push('');
+      continue;
+    }
+
+    const logicalLines = splitInlineListItems(trimmed);
+    for (const logicalLine of logicalLines) {
+      const wrappedLines = formatBulletLine(pdf, logicalLine, maxWidth);
+      outputLines.push(...wrappedLines);
+    }
+  }
+
+  return outputLines;
+}
+
+
 async function fileToBase64(file) {
   const buffer = await file.arrayBuffer();
   let binary = '';
@@ -255,7 +325,7 @@ export default function Home() {
             const style = getBlockStyle(block.role, styleOptions);
             pdf.setFont('helvetica', style.fontStyle);
             pdf.setFontSize(style.fontSize);
-            const lines = pdf.splitTextToSize(text, style.align === 'center' ? textWidth * 0.75 : textWidth);
+            const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.75 : textWidth);
             return { ...style, lines };
           })
           .filter(Boolean);
