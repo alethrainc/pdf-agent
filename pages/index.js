@@ -65,13 +65,27 @@ async function loadImageDataUrl(src) {
   });
 }
 
-function clonePreviewForExport(previewElement) {
+function clonePreviewForExport(previewElement, logoSrc) {
   const clone = previewElement.cloneNode(true);
   clone.style.border = '0';
   clone.style.borderRadius = '0';
   clone.style.padding = '0';
   clone.style.margin = '0';
   clone.style.boxShadow = 'none';
+  clone.style.color = '#000000';
+  clone.style.fontFamily = 'Arial, Helvetica, sans-serif';
+
+  clone.querySelectorAll('*').forEach((node) => {
+    node.style.color = '#000000';
+    node.style.fontFamily = 'Arial, Helvetica, sans-serif';
+  });
+
+  if (logoSrc) {
+    const logoNode = clone.querySelector('img');
+    if (logoNode) {
+      logoNode.src = logoSrc;
+    }
+  }
 
   const wrapper = document.createElement('div');
   wrapper.style.position = 'fixed';
@@ -196,7 +210,8 @@ export default function Home() {
         throw new Error('Unable to initialize PDF exporter.');
       }
 
-      const { wrapper, clone } = clonePreviewForExport(previewRef.current);
+      const proxyLogoSrc = logoUrl ? `/api/logo-proxy?url=${encodeURIComponent(logoUrl)}` : ''
+      const { wrapper, clone } = clonePreviewForExport(previewRef.current, proxyLogoSrc);
       const canvas = await html2canvas(clone, {
         scale: 2,
         useCORS: true,
@@ -207,7 +222,7 @@ export default function Home() {
       let logoImage = null;
       if (logoUrl) {
         try {
-          logoImage = await loadImageDataUrl(logoUrl);
+          logoImage = await loadImageDataUrl(proxyLogoSrc || logoUrl);
         } catch {
           logoImage = null;
         }
@@ -223,14 +238,16 @@ export default function Home() {
       const pageHeight = pdf.internal.pageSize.getHeight();
       const stripeWidth = 22;
       const contentX = 72;
-      const contentTop = 120;
-      const contentBottom = pageHeight - 96;
+      const contentTop = 96;
+      const contentBottom = pageHeight - 82;
       const contentWidth = pageWidth - contentX - 46;
       const contentHeightPt = contentBottom - contentTop;
       const footerY = pageHeight - 42;
 
       const pageContentHeightPx = Math.max(1, Math.floor((contentHeightPt * canvas.width) / contentWidth));
-      const totalPages = Math.max(1, Math.ceil(canvas.height / pageContentHeightPx));
+      const overlapPx = Math.max(0, Math.floor(pageContentHeightPx * 0.02));
+      const stepPx = Math.max(1, pageContentHeightPx - overlapPx);
+      const totalPages = Math.max(1, Math.ceil((canvas.height - overlapPx) / stepPx));
 
       for (let pageIndex = 0; pageIndex < totalPages; pageIndex += 1) {
         if (pageIndex > 0) pdf.addPage();
@@ -244,7 +261,7 @@ export default function Home() {
           pdf.addImage(logoImage.dataUrl, 'PNG', 54, 42, targetWidth, targetHeight, undefined, 'FAST');
         }
 
-        const sliceY = pageIndex * pageContentHeightPx;
+        const sliceY = pageIndex * stepPx;
         const sliceHeightPx = Math.min(pageContentHeightPx, canvas.height - sliceY);
         const sliceCanvas = document.createElement('canvas');
         sliceCanvas.width = canvas.width;
@@ -269,7 +286,7 @@ export default function Home() {
         pdf.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', contentX, contentTop, contentWidth, sliceHeightPt, undefined, 'FAST');
 
         pdf.setFont('helvetica', 'normal');
-        pdf.setTextColor(86, 86, 86);
+        pdf.setTextColor(0, 0, 0);
         pdf.setFontSize(10.5);
         pdf.text(footerMain || DEFAULT_FOOTER_MAIN, 72, footerY);
         pdf.text(footerSub || DEFAULT_FOOTER_SUB, 72, footerY + 17);
