@@ -37,9 +37,11 @@ function htmlToText(html) {
     html
       .replace(/<style[\s\S]*?<\/style>/gi, '')
       .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<h[1-6]\b[^>]*>/gi, '\n\n')
+      .replace(/<\/h[1-6]>/gi, '\n\n')
       .replace(/<li\b[^>]*>/gi, '\n• ')
+      .replace(/<\/(p|div|section|article|ul|ol)>/gi, '\n\n')
       .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n\n')
       .replace(/<[^>]+>/g, ' ')
       .replace(/[ \t]+/g, ' ')
       .replace(/\n{3,}/g, '\n\n')
@@ -194,9 +196,6 @@ File: ${fileName || 'uploaded document'}\n\n${text}`;
 
 function sanitizeForPdfText(text) {
   return text
-    .replace(/[•◦▪●]/g, '• ')
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
     .replace(/\u00A0/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -206,8 +205,12 @@ function escapePdfText(text) {
   return text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
 
+function getVisualLength(value) {
+  return Array.from(value || '').reduce((total, char) => total + (char.codePointAt(0) > 255 ? 1.7 : 1), 0);
+}
+
 function wrapLine(line, maxChars) {
-  if (line.length <= maxChars) return [line];
+  if (getVisualLength(line) <= maxChars) return [line];
 
   const words = line.split(/\s+/);
   const lines = [];
@@ -215,7 +218,7 @@ function wrapLine(line, maxChars) {
 
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length > maxChars) {
+    if (getVisualLength(candidate) > maxChars) {
       if (current) lines.push(current);
       current = word;
     } else {
@@ -255,7 +258,7 @@ function buildLineCommand(line, x, y, style) {
 
 function getTextX(line, style, pageWidth, defaultX) {
   if (!style.centered) return defaultX;
-  const approxWidth = line.length * style.size * 0.28;
+  const approxWidth = getVisualLength(line) * style.size * 0.28;
   return Math.max(defaultX, (pageWidth - approxWidth) / 2);
 }
 
