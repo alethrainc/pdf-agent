@@ -11,6 +11,7 @@ const DEFAULT_STYLE_OPTIONS = {
   headingFontSize: 17,
   bodyFontSize: 11,
   titleFontWeight: 'thin',
+  bodyFontWeight: 'light',
 };
 
 
@@ -80,15 +81,24 @@ function getBlockStyle(blockRole, styleOptions) {
       : Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize;
   const fontSize = Math.max(8, Number((baseFontSize * fontScale).toFixed(2)));
 
+  const headingSpacing = Math.max(8, Number((fontSize * 0.55).toFixed(2)));
+
   return {
     fontSize,
     lineHeight: isTitle ? fontSize * 1.32 : isHeading ? fontSize * 1.42 : fontSize * 1.58,
     fontStyle: isTitle
       ? styleOptions.titleFontWeight === 'normal' ? 'bold' : 'normal'
-      : isHeading ? 'bold' : 'normal',
+      : isHeading ? 'normal' : 'normal',
     align: isTitle || isCenteredBody ? 'center' : 'left',
-    paragraphGap: isTitle ? 14 : isCenteredBody ? 12 : 10,
+    spacingBefore: isHeading ? headingSpacing : 0,
+    spacingAfter: isHeading ? headingSpacing : isTitle ? 14 : isCenteredBody ? 12 : 10,
   };
+}
+
+function getBodyPreviewWeight(weightOption) {
+  if (weightOption === 'super-light') return 100;
+  if (weightOption === 'extra-light') return 200;
+  return 300;
 }
 
 
@@ -334,7 +344,7 @@ export default function Home() {
         let y = contentTop;
 
         for (const block of preparedBlocks) {
-          const blockHeight = block.lines.length * block.lineHeight + block.paragraphGap;
+          const blockHeight = block.spacingBefore + (block.lines.length * block.lineHeight) + block.spacingAfter;
 
           if (y + blockHeight > contentBottom && currentPage.length) {
             pages.push(currentPage);
@@ -342,7 +352,7 @@ export default function Home() {
             y = contentTop;
           }
 
-          currentPage.push({ ...block, yStart: y });
+          currentPage.push({ ...block, yStart: y + block.spacingBefore });
           y += blockHeight;
         }
 
@@ -539,6 +549,17 @@ export default function Home() {
               <option value="normal">Normal</option>
             </select>
 
+            <label htmlFor="bodyFontWeight">Body weight</label>
+            <select
+              id="bodyFontWeight"
+              value={styleOptions.bodyFontWeight}
+              onChange={(event) => setStyleOptions((prev) => ({ ...prev, bodyFontWeight: event.target.value }))}
+            >
+              <option value="light">Light</option>
+              <option value="extra-light">Extra-light</option>
+              <option value="super-light">Super-light</option>
+            </select>
+
             <label htmlFor="fontScale">Overall text scale (%)</label>
             <input
               id="fontScale"
@@ -580,7 +601,12 @@ export default function Home() {
               const isCenteredBody = block.role === 'centeredBody';
               const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
               const fontSize = Number((baseFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2));
-              const fontWeight = isTitle ? (styleOptions.titleFontWeight === 'thin' ? 200 : 500) : isHeading ? 500 : 400;
+              const fontWeight = isTitle
+                ? (styleOptions.titleFontWeight === 'thin' ? 200 : 500)
+                : isHeading
+                  ? 400
+                  : getBodyPreviewWeight(styleOptions.bodyFontWeight);
+              const headingVerticalSpacing = `${Math.max(8, Number((fontSize * 0.55).toFixed(2)))}px`;
               return (
                 <p
                   key={`${text}-${index}`}
@@ -589,7 +615,11 @@ export default function Home() {
                     lineHeight: isTitle ? 1.3 : isHeading ? 1.4 : 1.6,
                     fontWeight,
                     textAlign: isTitle || isCenteredBody ? 'center' : 'left',
-                    margin: isTitle ? '10px 0 14px' : '0 0 10px',
+                    margin: isTitle
+                      ? '10px 0 14px'
+                      : isHeading
+                        ? `${headingVerticalSpacing} 0`
+                        : '0 0 10px',
                   }}
                 >
                   {text}
