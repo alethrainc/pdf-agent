@@ -99,6 +99,43 @@ function getImageFormat(dataUrl) {
   return 'PNG';
 }
 
+function formatBlockLinesForPdf(pdf, text, maxWidth) {
+  const rawLines = String(text || '').split(/\r?\n/);
+  const outputLines = [];
+
+  for (const rawLine of rawLines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      outputLines.push('');
+      continue;
+    }
+
+    const bulletMatch = trimmed.match(/^(?:[•\-\*]|\d+[\.)])\s+(.*)$/);
+    if (!bulletMatch) {
+      const wrapped = pdf.splitTextToSize(trimmed, maxWidth);
+      outputLines.push(...(wrapped.length ? wrapped : ['']));
+      continue;
+    }
+
+    const bulletPrefix = `${trimmed.slice(0, trimmed.length - bulletMatch[1].length)}`;
+    const bulletIndent = pdf.getTextWidth(bulletPrefix);
+    const availableWidth = Math.max(24, maxWidth - bulletIndent);
+    const wrappedBulletContent = pdf.splitTextToSize(bulletMatch[1], availableWidth);
+
+    if (!wrappedBulletContent.length) {
+      outputLines.push(bulletPrefix.trimEnd());
+      continue;
+    }
+
+    outputLines.push(`${bulletPrefix}${wrappedBulletContent[0]}`);
+    for (let index = 1; index < wrappedBulletContent.length; index += 1) {
+      outputLines.push(`${' '.repeat(bulletPrefix.length)}${wrappedBulletContent[index]}`);
+    }
+  }
+
+  return outputLines;
+}
+
 async function fileToBase64(file) {
   const buffer = await file.arrayBuffer();
   let binary = '';
@@ -255,7 +292,7 @@ export default function Home() {
             const style = getBlockStyle(block.role, styleOptions);
             pdf.setFont('helvetica', style.fontStyle);
             pdf.setFontSize(style.fontSize);
-            const lines = pdf.splitTextToSize(text, style.align === 'center' ? textWidth * 0.75 : textWidth);
+            const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.75 : textWidth);
             return { ...style, lines };
           })
           .filter(Boolean);
