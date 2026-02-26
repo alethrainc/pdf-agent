@@ -100,7 +100,6 @@
 }
 
 .previewLabel {
-  font-size: 0.85rem;
   color: #556080;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -131,7 +130,6 @@
   color: #41454e;
   text-align: right;
   white-space: pre-line;
-  font-size: 0.85rem;
   line-height: 1.35;
 }
 

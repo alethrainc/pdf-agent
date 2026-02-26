@@ -304,8 +304,9 @@ export default function Home() {
           }
 
           if (pageIndex === 0 && confidentialLabel) {
+            const confidentialFontSize = getBlockStyle('body', styleOptions).fontSize;
             pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(12);
+            pdf.setFontSize(confidentialFontSize);
             pdf.setTextColor(65, 69, 78);
             pdf.text(confidentialLabel, pageWidth - 72, 56, {
               align: 'right',
@@ -493,7 +494,14 @@ export default function Home() {
                 <img src={logoUrl} alt="Logo preview" className={styles.previewLogo} />
               </>
             )}
-            <p className={styles.previewConfidential}>{confidentialText || DEFAULT_CONFIDENTIAL_TEXT}</p>
+            <p
+              className={styles.previewConfidential}
+              style={{
+                fontSize: `${Number((styleOptions.bodyFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2))}px`,
+              }}
+            >
+              {confidentialText || DEFAULT_CONFIDENTIAL_TEXT}
+            </p>
             {(codedDocument?.blocks || []).map((block, index) => {
               const text = block?.text?.trim();
               if (!text) return null;
