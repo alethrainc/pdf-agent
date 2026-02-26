@@ -11,6 +11,32 @@ const DEFAULT_STYLE_OPTIONS = {
   titleFontWeight: 'thin',
 };
 
+
+
+function loadScriptOnce(src, globalName) {
+  return new Promise((resolve, reject) => {
+    if (typeof window !== 'undefined' && window[globalName]) {
+      resolve(window[globalName]);
+      return;
+    }
+
+    const existing = document.querySelector(`script[data-src="${src}"]`);
+    if (existing) {
+      existing.addEventListener('load', () => resolve(window[globalName]));
+      existing.addEventListener('error', () => reject(new Error(`Unable to load ${globalName}.`)));
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.dataset.src = src;
+    script.onload = () => resolve(window[globalName]);
+    script.onerror = () => reject(new Error(`Unable to load ${globalName}.`));
+    document.head.appendChild(script);
+  });
+}
+
 async function fileToBase64(file) {
   const buffer = await file.arrayBuffer();
   let binary = '';
@@ -111,78 +137,82 @@ export default function Home() {
     setBusy(true);
 
     try {
-      const previewHtml = previewRef.current.outerHTML;
-      const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=900,height=1100');
+      await loadScriptOnce('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js', 'html2canvas');
+      await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', 'jspdf');
 
-      if (!printWindow) {
-        throw new Error('Popup blocked. Please allow popups to export PDF.');
+      const html2canvas = window.html2canvas;
+      const { jsPDF } = window.jspdf || {};
+
+      if (!html2canvas || !jsPDF) {
+        throw new Error('Unable to initialize PDF exporter.');
       }
 
-      const printableTitle = (fileName || upload?.name || 'document').replace(/\.[^/.]+$/, '') || 'document';
+      const canvas = await html2canvas(previewRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
 
-      printWindow.document.open();
-      printWindow.document.write(`<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${printableTitle}</title>
-    <style>
-      @page { size: Letter; margin: 0.5in; }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        padding: 0;
-        font-family: Inter, Arial, sans-serif;
-        background: #fff;
-      }
-      .print-shell {
-        width: 100%;
-        max-width: 8.5in;
-        margin: 0 auto;
-      }
-      .${styles.previewPage} {
-        border: 0;
-        border-radius: 0;
-        padding: 0;
-        min-height: auto;
-        margin-top: 0;
-        width: 100%;
-      }
-      .${styles.previewLogo} {
-        max-width: 160px;
-        max-height: 40px;
-        width: auto;
-        margin-bottom: 12px;
-      }
-      .${styles.previewFooter} {
-        margin-top: 20px;
-        padding-top: 10px;
-        border-top: 1px solid #eef2fa;
-        color: #6f7687;
-        font-size: 0.75rem;
-        display: grid;
-        gap: 4px;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="print-shell">${previewHtml}</div>
-    <script>
-      window.onload = () => {
-        window.print();
-      };
-    </script>
-  </body>
-</html>`);
-      printWindow.document.close();
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'pt',
+        format: 'letter',
+      });
 
-      setStatus('Print dialog opened. Choose “Save as PDF” to export the exact live preview.');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 24;
+      const renderWidth = pageWidth - margin * 2;
+      const fullPageHeight = (canvas.height * renderWidth) / canvas.width;
+
+      if (fullPageHeight <= pageHeight - margin * 2) {
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, renderWidth, fullPageHeight, undefined, 'FAST');
+      } else {
+        const pageContentHeightPt = pageHeight - margin * 2;
+        const pageContentHeightPx = Math.floor((pageContentHeightPt * canvas.width) / renderWidth);
+        let yOffset = 0;
+        let firstPage = true;
+
+        while (yOffset < canvas.height) {
+          const sliceCanvas = document.createElement('canvas');
+          sliceCanvas.width = canvas.width;
+          sliceCanvas.height = Math.min(pageContentHeightPx, canvas.height - yOffset);
+          const sliceContext = sliceCanvas.getContext('2d');
+
+          if (!sliceContext) throw new Error('Unable to render PDF page image.');
+
+          sliceContext.drawImage(
+            canvas,
+            0,
+            yOffset,
+            canvas.width,
+            sliceCanvas.height,
+            0,
+            0,
+            canvas.width,
+            sliceCanvas.height
+          );
+
+          if (!firstPage) pdf.addPage();
+          firstPage = false;
+
+          const sliceHeightPt = (sliceCanvas.height * renderWidth) / sliceCanvas.width;
+          pdf.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', margin, margin, renderWidth, sliceHeightPt, undefined, 'FAST');
+
+          yOffset += sliceCanvas.height;
+        }
+      }
+
+      const outputName = `${fileName || upload?.name?.replace(/\.[^/.]+$/, '') || 'document'}.pdf`;
+      pdf.save(outputName);
+      setStatus('PDF downloaded successfully from the live preview.');
     } catch (error) {
       setStatus(error.message || 'Unable to export live preview.');
     } finally {
       setBusy(false);
     }
   }
+
 
 
   return (
