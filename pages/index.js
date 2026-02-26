@@ -4,6 +4,7 @@ import styles from '../styles/Home.module.css';
 const DEFAULT_LOGO_URL = 'https://plusbrand.com/wp-content/uploads/2025/10/Copia-de-ALETHRA_Logo-scaled.png';
 const DEFAULT_FOOTER_MAIN = '© 2026 ALETHRA™. All rights reserved.';
 const DEFAULT_FOOTER_SUB = 'Confidential – Not for distribution without written authorization.';
+const DEFAULT_CONFIDENTIAL_TEXT = 'Confidential, Restricted Distribution\nVersion 1.0 – March 2026';
 const DEFAULT_STYLE_OPTIONS = {
   fontScale: 100,
   titleFontSize: 30,
@@ -118,6 +119,7 @@ export default function Home() {
   const [logoUrl, setLogoUrl] = useState(DEFAULT_LOGO_URL);
   const [footerMain, setFooterMain] = useState(DEFAULT_FOOTER_MAIN);
   const [footerSub, setFooterSub] = useState(DEFAULT_FOOTER_SUB);
+  const [confidentialText, setConfidentialText] = useState(DEFAULT_CONFIDENTIAL_TEXT);
   const [busy, setBusy] = useState(false);
   const [buildingPreview, setBuildingPreview] = useState(false);
   const [dragActive, setDragActive] = useState(false);
@@ -243,6 +245,7 @@ export default function Home() {
         const footerY = pageHeight - 42;
         const contentTop = 112;
         const contentBottom = pageHeight - 74;
+        const confidentialLabel = (confidentialText || DEFAULT_CONFIDENTIAL_TEXT).trim();
 
         const preparedBlocks = extractedBlocks
           .map((block) => {
@@ -298,6 +301,17 @@ export default function Home() {
             const logoWidth = 135;
             const logoHeight = (logoAsset.height * logoWidth) / logoAsset.width;
             pdf.addImage(logoAsset.dataUrl, getImageFormat(logoAsset.dataUrl), 54, 40, logoWidth, logoHeight, undefined, 'FAST');
+          }
+
+          if (pageIndex === 0 && confidentialLabel) {
+            const confidentialFontSize = getBlockStyle('body', styleOptions).fontSize;
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(confidentialFontSize);
+            pdf.setTextColor(65, 69, 78);
+            pdf.text(confidentialLabel, pageWidth - 72, 56, {
+              align: 'right',
+              baseline: 'top',
+            });
           }
 
           for (const block of pages[pageIndex]) {
@@ -406,6 +420,14 @@ export default function Home() {
             onChange={(event) => setFooterSub(event.target.value)}
           />
 
+          <label htmlFor="confidentialText">First-page top-right confidential text</label>
+          <textarea
+            id="confidentialText"
+            value={confidentialText}
+            onChange={(event) => setConfidentialText(event.target.value)}
+            rows={2}
+          />
+
           <div className={styles.styleGrid}>
             <label htmlFor="titleFontSize">Title size</label>
             <input
@@ -472,6 +494,14 @@ export default function Home() {
                 <img src={logoUrl} alt="Logo preview" className={styles.previewLogo} />
               </>
             )}
+            <p
+              className={styles.previewConfidential}
+              style={{
+                fontSize: `${Number((styleOptions.bodyFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2))}px`,
+              }}
+            >
+              {confidentialText || DEFAULT_CONFIDENTIAL_TEXT}
+            </p>
             {(codedDocument?.blocks || []).map((block, index) => {
               const text = block?.text?.trim();
               if (!text) return null;
