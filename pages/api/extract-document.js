@@ -116,10 +116,15 @@ function extractZipEntry(buffer, targetName) {
 }
 
 function extractParagraphText(paragraphXml) {
-  const runs = paragraphXml.match(/<w:t\b[^>]*>[\s\S]*?<\/w:t>/g) || [];
-  const combined = runs
-    .map((run) => run.replace(/<w:t\b[^>]*>|<\/w:t>/g, ''))
+  const tokenPattern = /<w:t\b[^>]*>[\s\S]*?<\/w:t>|<w:(?:br|cr|tab)\b[^>]*\/>/g;
+  const tokens = paragraphXml.match(tokenPattern) || [];
+  const combined = tokens
+    .map((token) => {
+      if (/^<w:t\b/.test(token)) return token.replace(/<w:t\b[^>]*>|<\/w:t>/g, '');
+      return ' ';
+    })
     .join('')
+    .replace(/[ \t]{2,}/g, ' ')
     .trim();
 
   return decodeXmlEntities(combined);
