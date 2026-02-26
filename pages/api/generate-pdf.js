@@ -201,6 +201,32 @@ function sanitizeForPdfText(text) {
     .trim();
 }
 
+function inferBlockRole(paragraph, index) {
+  const trimmed = paragraph.trim();
+  if (!trimmed) return 'body';
+  if (index === 0) return 'title';
+
+  const isNumberedHeading = /^\d+[\.)]\s+/.test(trimmed);
+  const isUpperHeading = trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed) && trimmed.length <= 72;
+  const isTitleCaseHeading = /^[A-Z][A-Za-z0-9'’&:,()\-\s]+$/.test(trimmed) && trimmed.length <= 68 && !trimmed.endsWith('.');
+  return isNumberedHeading || isUpperHeading || isTitleCaseHeading ? 'heading' : 'body';
+}
+
+function textToCodedDocument(text) {
+  const content = sanitizeForPdfText(text);
+  const paragraphs = content.split(/\n\n+/).map((paragraph) => paragraph.trim()).filter(Boolean);
+  const blocks = paragraphs.map((paragraph, index) => ({
+    role: inferBlockRole(paragraph, index),
+    text: paragraph,
+  }));
+
+  if (!blocks.length) {
+    return { blocks: [{ role: 'body', text: ' ' }] };
+  }
+
+  return { blocks };
+}
+
 function escapePdfText(text) {
   return text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
@@ -230,22 +256,17 @@ function wrapLine(line, maxChars) {
   return lines;
 }
 
-function classifyLineStyle(line, contentIndex, styleOptions = DEFAULT_STYLE_OPTIONS) {
-  const trimmed = line.trim();
-  const isFirstLine = contentIndex === 0;
-  const isNumberedHeading = /^\d+[\.)]\s+/.test(trimmed);
-  const isUpperHeading = trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed) && trimmed.length <= 72;
-  const isTitleCaseHeading = /^[A-Z][A-Za-z0-9'’&:,()\-\s]+$/.test(trimmed) && trimmed.length <= 68 && !trimmed.endsWith('.');
+function classifyLineStyle(role, styleOptions = DEFAULT_STYLE_OPTIONS) {
   const titleFont = styleOptions.titleFontWeight === 'thin' ? 'F4' : 'F3';
   const titleSize = Number(styleOptions.titleFontSize) || DEFAULT_STYLE_OPTIONS.titleFontSize;
   const headingSize = Number(styleOptions.headingFontSize) || DEFAULT_STYLE_OPTIONS.headingFontSize;
   const bodySize = Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize;
 
-  if (isFirstLine) {
+  if (role === 'title') {
     return { font: titleFont, size: titleSize, lineHeight: Math.round(titleSize * 1.32), color: '0.13 0.13 0.15', centered: true };
   }
 
-  if (isNumberedHeading || isUpperHeading || isTitleCaseHeading) {
+  if (role === 'heading') {
     return { font: 'F2', size: headingSize, lineHeight: Math.round(headingSize * 1.44), color: '0.13 0.13 0.15' };
   }
 
@@ -421,7 +442,7 @@ function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeig
   return commands;
 }
 
-async function textToPdfBuffer(text, options = {}) {
+async function codedDocumentToPdfBuffer(codedDocument, options = {}) {
   const pageWidth = 612;
   const pageHeight = 792;
   const marginLeft = 72;
@@ -434,13 +455,11 @@ async function textToPdfBuffer(text, options = {}) {
     ...(options.styleOptions || {}),
   };
 
-  const content = sanitizeForPdfText(text);
-  const paragraphs = content.split(/\n\n+/).map((paragraph) => paragraph.trimEnd());
+  const blocks = codedDocument?.blocks?.length ? codedDocument.blocks : [{ role: 'body', text: ' ' }];
 
   const pages = [];
   let currentPage = [];
   let y = pageHeight - marginTop;
-  let contentIndex = 0;
 
   const pushNewPage = () => {
     if (currentPage.length) pages.push(currentPage);
@@ -448,24 +467,23 @@ async function textToPdfBuffer(text, options = {}) {
     y = pageHeight - marginTop;
   };
 
-  for (let paragraphIndex = 0; paragraphIndex < paragraphs.length; paragraphIndex += 1) {
-    const paragraph = paragraphs[paragraphIndex];
-    const paragraphLines = (paragraph || ' ').split(/\r?\n/);
+  for (let paragraphIndex = 0; paragraphIndex < blocks.length; paragraphIndex += 1) {
+    const block = blocks[paragraphIndex];
+    const paragraphLines = (block.text || ' ').split(/\r?\n/);
 
     for (const paragraphLine of paragraphLines) {
       const wrapped = wrapLine(paragraphLine || ' ', maxChars);
 
       for (const line of wrapped) {
-        const style = classifyLineStyle(line, contentIndex, styleOptions);
+        const style = classifyLineStyle(block.role || 'body', styleOptions);
         if (y < marginBottom) pushNewPage();
         const x = getTextX(line, style, pageWidth, marginLeft);
         currentPage.push(buildLineCommand(line, x, y, style));
         y -= style.lineHeight;
-        contentIndex += 1;
       }
     }
 
-    if (paragraphIndex < paragraphs.length - 1) y -= paragraphGap;
+    if (paragraphIndex < blocks.length - 1) y -= paragraphGap;
   }
 
   if (currentPage.length === 0) {
@@ -547,33 +565,15 @@ async function textToPdfBuffer(text, options = {}) {
   return Buffer.from(pdf, 'binary');
 }
 
-async function convertUploadedFile(uploadedFile, options) {
+async function extractFormattedText(uploadedFile) {
   const rawBuffer = Buffer.from(uploadedFile.data, 'base64');
   const extension = getExtension(uploadedFile.name);
 
-  if (extension === 'pdf') return rawBuffer;
-
-  if (extension === 'docx') {
-    const text = await formatTextWithAI(docxToText(rawBuffer), uploadedFile.name);
-    return textToPdfBuffer(text, options);
-  }
-
-  if (extension === 'txt') {
-    const text = await formatTextWithAI(rawBuffer.toString('utf8'), uploadedFile.name);
-    return textToPdfBuffer(text, options);
-  }
-
-  if (extension === 'rtf') {
-    const text = await formatTextWithAI(rtfToText(rawBuffer.toString('utf8')), uploadedFile.name);
-    return textToPdfBuffer(text, options);
-  }
-
-  if (extension === 'html' || extension === 'htm') {
-    const text = await formatTextWithAI(htmlToText(rawBuffer.toString('utf8')), uploadedFile.name);
-    return textToPdfBuffer(text, options);
-  }
-
-  throw new Error('Unsupported file type. Upload PDF, DOCX, TXT, RTF, or HTML.');
+  if (extension === 'docx') return formatTextWithAI(docxToText(rawBuffer), uploadedFile.name);
+  if (extension === 'txt') return formatTextWithAI(rawBuffer.toString('utf8'), uploadedFile.name);
+  if (extension === 'rtf') return formatTextWithAI(rtfToText(rawBuffer.toString('utf8')), uploadedFile.name);
+  if (extension === 'html' || extension === 'htm') return formatTextWithAI(htmlToText(rawBuffer.toString('utf8')), uploadedFile.name);
+  throw new Error('Preview is available for DOCX, TXT, RTF, and HTML files.');
 }
 
 export default async function handler(req, res) {
@@ -582,7 +582,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { fileName, uploadedFile, logoUrl, footerMain, footerSub, styleOptions } = req.body || {};
+  const { fileName, uploadedFile, logoUrl, footerMain, footerSub, styleOptions, previewOnly, codedDocument } = req.body || {};
 
   if (!uploadedFile?.name || !uploadedFile?.data) {
     return res.status(400).json({ error: 'Please upload a file to convert.' });
@@ -596,7 +596,29 @@ export default async function handler(req, res) {
   }
 
   try {
-    const pdfBuffer = await convertUploadedFile(uploadedFile, {
+    if (previewOnly) {
+      if (extension === 'pdf') {
+        return res.status(400).json({ error: 'Live preview is not available for PDF uploads.' });
+      }
+
+      const previewText = await extractFormattedText(uploadedFile);
+      return res.status(200).json({ codedDocument: textToCodedDocument(previewText) });
+    }
+
+    if (extension === 'pdf') {
+      const rawPdf = Buffer.from(uploadedFile.data, 'base64');
+      const safeName = getSafeName(fileName || uploadedFile.name || 'document');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}.pdf"`);
+      return res.status(200).send(rawPdf);
+    }
+
+    const finalCodedDocument = codedDocument?.blocks?.length
+      ? codedDocument
+      : textToCodedDocument(await extractFormattedText(uploadedFile));
+
+
+    const styledPdfBuffer = await codedDocumentToPdfBuffer(finalCodedDocument, {
       logoUrl: logoUrl || DEFAULT_LOGO_URL,
       footerMain: footerMain || DEFAULT_FOOTER_MAIN,
       footerSub: footerSub || DEFAULT_FOOTER_SUB,
@@ -613,7 +635,7 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}.pdf"`);
 
-    return res.status(200).send(pdfBuffer);
+    return res.status(200).send(styledPdfBuffer);
   } catch (error) {
     return res.status(500).json({ error: error?.message || 'Unable to generate PDF.' });
   }

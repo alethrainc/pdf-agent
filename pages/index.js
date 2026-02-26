@@ -34,24 +34,43 @@ export default function Home() {
   const [footerSub, setFooterSub] = useState(DEFAULT_FOOTER_SUB);
   const [busy, setBusy] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const [previewText, setPreviewText] = useState('Document Title\n\nSection Heading\nAdjustable body text preview. Update font sizes and weight before generating your PDF.');
+  const [codedDocument, setCodedDocument] = useState({
+    blocks: [
+      { role: 'title', text: 'Document Title' },
+      { role: 'heading', text: 'Section Heading' },
+      { role: 'body', text: 'Adjustable body text preview. Update font sizes and weight before generating your PDF.' },
+    ],
+  });
   const [styleOptions, setStyleOptions] = useState(DEFAULT_STYLE_OPTIONS);
 
-  function parsePreviewText(file) {
+  async function buildPreviewFromFile(file) {
     if (!file) return;
 
-    if (file.type.includes('text') || /\.(txt|html?|rtf)$/i.test(file.name)) {
-      file.text().then((text) => {
-        if (text) {
-          const cleaned = text
-            .replace(/<style[\s\S]*?<\/style>/gi, '')
-            .replace(/<script[\s\S]*?<\/script>/gi, '')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-          setPreviewText(cleaned.slice(0, 1200) || previewText);
-        }
+    try {
+      const base64 = await fileToBase64(file);
+      const uploadedFile = {
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        data: base64,
+      };
+
+      const response = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uploadedFile, previewOnly: true }),
       });
+
+      if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload.error || 'Unable to build live preview.');
+      }
+
+      const payload = await response.json();
+      if (payload?.codedDocument?.blocks?.length) {
+        setCodedDocument(payload.codedDocument);
+      }
+    } catch (error) {
+      setStatus(error.message);
     }
   }
 
@@ -59,7 +78,7 @@ export default function Home() {
     if (!file) return;
 
     setUpload(file);
-    parsePreviewText(file);
+    buildPreviewFromFile(file);
     if (!fileName) {
       const baseName = file.name.replace(/\.[^/.]+$/, '');
       setFileName(baseName);
@@ -96,7 +115,7 @@ export default function Home() {
       const response = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName, uploadedFile, logoUrl, footerMain, footerSub, styleOptions }),
+        body: JSON.stringify({ fileName, uploadedFile, logoUrl, footerMain, footerSub, styleOptions, codedDocument }),
       });
 
       if (!response.ok) {
@@ -241,22 +260,22 @@ export default function Home() {
                 <img src={logoUrl} alt="Logo preview" className={styles.previewLogo} />
               </>
             )}
-            {previewText.split(/\n\n+/).map((paragraph, index) => {
-              if (!paragraph.trim()) return null;
-              const text = paragraph.trim();
-              const first = index === 0;
-              const heading = !first && /^[A-Z][A-Za-z0-9'’&:,()\-\s]+$/.test(text) && text.length <= 68;
-              const fontSize = first ? styleOptions.titleFontSize : heading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
-              const fontWeight = first ? (styleOptions.titleFontWeight === 'thin' ? 200 : 500) : heading ? 500 : 400;
+            {(codedDocument?.blocks || []).map((block, index) => {
+              const text = block?.text?.trim();
+              if (!text) return null;
+              const isTitle = block.role === 'title';
+              const isHeading = block.role === 'heading';
+              const fontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
+              const fontWeight = isTitle ? (styleOptions.titleFontWeight === 'thin' ? 200 : 500) : isHeading ? 500 : 400;
               return (
                 <p
                   key={`${text}-${index}`}
                   style={{
                     fontSize: `${fontSize}px`,
-                    lineHeight: first ? 1.3 : heading ? 1.4 : 1.6,
+                    lineHeight: isTitle ? 1.3 : isHeading ? 1.4 : 1.6,
                     fontWeight,
-                    textAlign: first ? 'center' : 'left',
-                    margin: first ? '10px 0 14px' : '0 0 10px',
+                    textAlign: isTitle ? 'center' : 'left',
+                    margin: isTitle ? '10px 0 14px' : '0 0 10px',
                   }}
                 >
                   {text}
