@@ -9,6 +9,7 @@ const DEFAULT_STYLE_OPTIONS = {
   headingFontSize: 17,
   bodyFontSize: 11,
   titleFontWeight: 'thin',
+  fontScalePercent: 100,
 };
 
 
@@ -69,11 +70,13 @@ async function loadLogoDataUrl(url) {
 function getBlockStyle(blockRole, styleOptions) {
   const isTitle = blockRole === 'title';
   const isHeading = blockRole === 'heading';
-  const fontSize = isTitle
+  const baseFontSize = isTitle
     ? Number(styleOptions.titleFontSize) || DEFAULT_STYLE_OPTIONS.titleFontSize
     : isHeading
       ? Number(styleOptions.headingFontSize) || DEFAULT_STYLE_OPTIONS.headingFontSize
       : Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize;
+  const fontScale = Math.max(60, Math.min(140, Number(styleOptions.fontScalePercent) || DEFAULT_STYLE_OPTIONS.fontScalePercent));
+  const fontSize = Number((baseFontSize * (fontScale / 100)).toFixed(2));
 
   return {
     fontSize,
@@ -408,6 +411,24 @@ export default function Home() {
               <option value="thin">Super thin</option>
               <option value="normal">Normal</option>
             </select>
+
+            <label htmlFor="fontScalePercent">Overall font scale (%)</label>
+            <input
+              id="fontScalePercent"
+              type="number"
+              min="60"
+              max="140"
+              value={styleOptions.fontScalePercent}
+              onChange={(event) => {
+                const nextValue = Number(event.target.value);
+                setStyleOptions((prev) => ({
+                  ...prev,
+                  fontScalePercent: Number.isFinite(nextValue)
+                    ? Math.max(60, Math.min(140, nextValue))
+                    : prev.fontScalePercent,
+                }));
+              }}
+            />
           </div>
 
           <button type="submit" disabled={busy || buildingPreview}>
@@ -429,7 +450,9 @@ export default function Home() {
               if (!text) return null;
               const isTitle = block.role === 'title';
               const isHeading = block.role === 'heading';
-              const fontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
+              const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
+              const fontScale = Math.max(60, Math.min(140, Number(styleOptions.fontScalePercent) || DEFAULT_STYLE_OPTIONS.fontScalePercent));
+              const fontSize = Number((baseFontSize * (fontScale / 100)).toFixed(2));
               const fontWeight = isTitle ? (styleOptions.titleFontWeight === 'thin' ? 200 : 500) : isHeading ? 500 : 400;
               return (
                 <p
