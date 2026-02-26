@@ -37,6 +37,55 @@ function loadScriptOnce(src, globalName) {
   });
 }
 
+
+async function loadImageDataUrl(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        reject(new Error('Unable to prepare logo image for PDF.'));
+        return;
+      }
+
+      ctx.drawImage(image, 0, 0);
+      resolve({
+        dataUrl: canvas.toDataURL('image/png'),
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      });
+    };
+    image.onerror = () => reject(new Error('Unable to load logo image.'));
+    image.src = src;
+  });
+}
+
+function clonePreviewForExport(previewElement) {
+  const clone = previewElement.cloneNode(true);
+  clone.style.border = '0';
+  clone.style.borderRadius = '0';
+  clone.style.padding = '0';
+  clone.style.margin = '0';
+  clone.style.boxShadow = 'none';
+
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'fixed';
+  wrapper.style.left = '-99999px';
+  wrapper.style.top = '0';
+  wrapper.style.width = `${Math.round(previewElement.getBoundingClientRect().width)}px`;
+  wrapper.style.background = '#ffffff';
+  wrapper.style.padding = '0';
+  wrapper.appendChild(clone);
+  document.body.appendChild(wrapper);
+
+  return { wrapper, clone };
+}
+
 async function fileToBase64(file) {
   const buffer = await file.arrayBuffer();
   let binary = '';
@@ -147,11 +196,22 @@ export default function Home() {
         throw new Error('Unable to initialize PDF exporter.');
       }
 
-      const canvas = await html2canvas(previewRef.current, {
+      const { wrapper, clone } = clonePreviewForExport(previewRef.current);
+      const canvas = await html2canvas(clone, {
         scale: 2,
         useCORS: true,
         backgroundColor: '#ffffff',
       });
+      wrapper.remove();
+
+      let logoImage = null;
+      if (logoUrl) {
+        try {
+          logoImage = await loadImageDataUrl(logoUrl);
+        } catch {
+          logoImage = null;
+        }
+      }
 
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -161,46 +221,61 @@ export default function Home() {
 
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 24;
-      const renderWidth = pageWidth - margin * 2;
-      const fullPageHeight = (canvas.height * renderWidth) / canvas.width;
+      const stripeWidth = 22;
+      const contentX = 72;
+      const contentTop = 120;
+      const contentBottom = pageHeight - 96;
+      const contentWidth = pageWidth - contentX - 46;
+      const contentHeightPt = contentBottom - contentTop;
+      const footerY = pageHeight - 42;
 
-      if (fullPageHeight <= pageHeight - margin * 2) {
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, renderWidth, fullPageHeight, undefined, 'FAST');
-      } else {
-        const pageContentHeightPt = pageHeight - margin * 2;
-        const pageContentHeightPx = Math.floor((pageContentHeightPt * canvas.width) / renderWidth);
-        let yOffset = 0;
-        let firstPage = true;
+      const pageContentHeightPx = Math.max(1, Math.floor((contentHeightPt * canvas.width) / contentWidth));
+      const totalPages = Math.max(1, Math.ceil(canvas.height / pageContentHeightPx));
 
-        while (yOffset < canvas.height) {
-          const sliceCanvas = document.createElement('canvas');
-          sliceCanvas.width = canvas.width;
-          sliceCanvas.height = Math.min(pageContentHeightPx, canvas.height - yOffset);
-          const sliceContext = sliceCanvas.getContext('2d');
+      for (let pageIndex = 0; pageIndex < totalPages; pageIndex += 1) {
+        if (pageIndex > 0) pdf.addPage();
 
-          if (!sliceContext) throw new Error('Unable to render PDF page image.');
+        pdf.setFillColor(211, 31, 45);
+        pdf.rect(0, 0, stripeWidth, pageHeight, 'F');
 
-          sliceContext.drawImage(
-            canvas,
-            0,
-            yOffset,
-            canvas.width,
-            sliceCanvas.height,
-            0,
-            0,
-            canvas.width,
-            sliceCanvas.height
-          );
-
-          if (!firstPage) pdf.addPage();
-          firstPage = false;
-
-          const sliceHeightPt = (sliceCanvas.height * renderWidth) / sliceCanvas.width;
-          pdf.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', margin, margin, renderWidth, sliceHeightPt, undefined, 'FAST');
-
-          yOffset += sliceCanvas.height;
+        if (logoImage) {
+          const targetWidth = 135;
+          const targetHeight = (logoImage.height * targetWidth) / logoImage.width;
+          pdf.addImage(logoImage.dataUrl, 'PNG', 54, 42, targetWidth, targetHeight, undefined, 'FAST');
         }
+
+        const sliceY = pageIndex * pageContentHeightPx;
+        const sliceHeightPx = Math.min(pageContentHeightPx, canvas.height - sliceY);
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = sliceHeightPx;
+        const sliceContext = sliceCanvas.getContext('2d');
+
+        if (!sliceContext) throw new Error('Unable to render PDF page image.');
+
+        sliceContext.drawImage(
+          canvas,
+          0,
+          sliceY,
+          canvas.width,
+          sliceHeightPx,
+          0,
+          0,
+          canvas.width,
+          sliceHeightPx
+        );
+
+        const sliceHeightPt = (sliceHeightPx * contentWidth) / canvas.width;
+        pdf.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', contentX, contentTop, contentWidth, sliceHeightPt, undefined, 'FAST');
+
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(86, 86, 86);
+        pdf.setFontSize(10.5);
+        pdf.text(footerMain || DEFAULT_FOOTER_MAIN, 72, footerY);
+        pdf.text(footerSub || DEFAULT_FOOTER_SUB, 72, footerY + 17);
+
+        pdf.setFontSize(11);
+        pdf.text(`Page ${pageIndex + 1} of ${totalPages}`, pageWidth - 72, footerY + 17, { align: 'right' });
       }
 
       const outputName = `${fileName || upload?.name?.replace(/\.[^/.]+$/, '') || 'document'}.pdf`;
