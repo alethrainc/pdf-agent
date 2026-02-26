@@ -12,10 +12,6 @@ const DEFAULT_STYLE_OPTIONS = {
   titleFontWeight: 'thin',
 };
 
-
-
-
-
 function loadScriptOnce(src, globalName) {
   return new Promise((resolve, reject) => {
     if (typeof window !== 'undefined' && window[globalName]) {
@@ -88,7 +84,6 @@ function getBlockStyle(blockRole, styleOptions) {
     paragraphGap: isTitle ? 14 : 10,
   };
 }
-
 
 function getImageFormat(dataUrl) {
   if (!dataUrl || typeof dataUrl !== 'string') return 'PNG';
@@ -340,24 +335,33 @@ export default function Home() {
     }
   }
 
-
-
   return (
     <main className={styles.main}>
+      <div className={styles.glowOne} />
+      <div className={styles.glowTwo} />
+
       <section className={styles.card}>
-        <h1>Upload File → PDF</h1>
-        <p>Upload up to 10 files and convert each to PDF in one batch. Supported preview input: DOCX, TXT, RTF, HTML. PDF export is text-based (copy/paste friendly) with branded page styling.</p>
+        <div className={styles.heroRow}>
+          <span className={styles.badge}>Premium Workspace</span>
+          <h1>Upload File → PDF</h1>
+          <p>
+            Upload up to 10 files and convert each to PDF in one batch. Supported preview input: DOCX, TXT, RTF, HTML.
+            PDF export is text-based (copy/paste friendly) with branded page styling.
+          </p>
+        </div>
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <label htmlFor="upload">Upload up to 10 files (or drop below)</label>
-          <input
-            id="upload"
-            type="file"
-            accept=".docx,.txt,.rtf,.html,.htm"
-            onChange={(event) => handleFileSelect(event.target.files)}
-            multiple
-            required
-          />
+          <div className={styles.fieldShell}>
+            <label htmlFor="upload">Upload up to 10 files (or drop below)</label>
+            <input
+              id="upload"
+              type="file"
+              accept=".docx,.txt,.rtf,.html,.htm"
+              onChange={(event) => handleFileSelect(event.target.files)}
+              multiple
+              required
+            />
+          </div>
 
           <div
             className={`${styles.dropZone} ${dragActive ? styles.dropZoneActive : ''}`}
@@ -371,91 +375,109 @@ export default function Home() {
             {uploads.length ? `Ready to convert ${uploads.length} file${uploads.length === 1 ? '' : 's'}` : 'Drag & drop up to 10 files here'}
           </div>
 
-          <label htmlFor="fileName">Optional output file name (single file only)</label>
-          <input
-            id="fileName"
-            type="text"
-            value={fileName}
-            onChange={(event) => setFileName(event.target.value)}
-            placeholder="document"
-          />
+          <div className={styles.fieldShell}>
+            <label htmlFor="fileName">Optional output file name (single file only)</label>
+            <input
+              id="fileName"
+              type="text"
+              value={fileName}
+              onChange={(event) => setFileName(event.target.value)}
+              placeholder="document"
+            />
+          </div>
 
+          <div className={styles.fieldShell}>
+            <label htmlFor="logoUrl">Logo URL (used on each page)</label>
+            <input
+              id="logoUrl"
+              type="url"
+              value={logoUrl}
+              onChange={(event) => setLogoUrl(event.target.value)}
+              placeholder="https://example.com/logo.png"
+            />
+          </div>
 
-          <label htmlFor="logoUrl">Logo URL (used on each page)</label>
-          <input
-            id="logoUrl"
-            type="url"
-            value={logoUrl}
-            onChange={(event) => setLogoUrl(event.target.value)}
-            placeholder="https://example.com/logo.png"
-          />
-
-          <label htmlFor="footerMain">Footer line 1</label>
-          <input
-            id="footerMain"
-            type="text"
-            value={footerMain}
-            onChange={(event) => setFooterMain(event.target.value)}
-          />
-
-          <label htmlFor="footerSub">Footer line 2</label>
-          <input
-            id="footerSub"
-            type="text"
-            value={footerSub}
-            onChange={(event) => setFooterSub(event.target.value)}
-          />
+          <div className={styles.twoCol}>
+            <div className={styles.fieldShell}>
+              <label htmlFor="footerMain">Footer line 1</label>
+              <input
+                id="footerMain"
+                type="text"
+                value={footerMain}
+                onChange={(event) => setFooterMain(event.target.value)}
+              />
+            </div>
+            <div className={styles.fieldShell}>
+              <label htmlFor="footerSub">Footer line 2</label>
+              <input
+                id="footerSub"
+                type="text"
+                value={footerSub}
+                onChange={(event) => setFooterSub(event.target.value)}
+              />
+            </div>
+          </div>
 
           <div className={styles.styleGrid}>
-            <label htmlFor="titleFontSize">Title size</label>
-            <input
-              id="titleFontSize"
-              type="number"
-              min="18"
-              max="48"
-              value={styleOptions.titleFontSize}
-              onChange={(event) => setStyleOptions((prev) => ({ ...prev, titleFontSize: Number(event.target.value) || prev.titleFontSize }))}
-            />
+            <div className={styles.fieldShell}>
+              <label htmlFor="titleFontSize">Title size</label>
+              <input
+                id="titleFontSize"
+                type="number"
+                min="18"
+                max="48"
+                value={styleOptions.titleFontSize}
+                onChange={(event) => setStyleOptions((prev) => ({ ...prev, titleFontSize: Number(event.target.value) || prev.titleFontSize }))}
+              />
+            </div>
 
-            <label htmlFor="headingFontSize">Heading size</label>
-            <input
-              id="headingFontSize"
-              type="number"
-              min="12"
-              max="30"
-              value={styleOptions.headingFontSize}
-              onChange={(event) => setStyleOptions((prev) => ({ ...prev, headingFontSize: Number(event.target.value) || prev.headingFontSize }))}
-            />
+            <div className={styles.fieldShell}>
+              <label htmlFor="headingFontSize">Heading size</label>
+              <input
+                id="headingFontSize"
+                type="number"
+                min="12"
+                max="30"
+                value={styleOptions.headingFontSize}
+                onChange={(event) => setStyleOptions((prev) => ({ ...prev, headingFontSize: Number(event.target.value) || prev.headingFontSize }))}
+              />
+            </div>
 
-            <label htmlFor="bodyFontSize">Body size</label>
-            <input
-              id="bodyFontSize"
-              type="number"
-              min="9"
-              max="20"
-              value={styleOptions.bodyFontSize}
-              onChange={(event) => setStyleOptions((prev) => ({ ...prev, bodyFontSize: Number(event.target.value) || prev.bodyFontSize }))}
-            />
+            <div className={styles.fieldShell}>
+              <label htmlFor="bodyFontSize">Body size</label>
+              <input
+                id="bodyFontSize"
+                type="number"
+                min="9"
+                max="20"
+                value={styleOptions.bodyFontSize}
+                onChange={(event) => setStyleOptions((prev) => ({ ...prev, bodyFontSize: Number(event.target.value) || prev.bodyFontSize }))}
+              />
+            </div>
 
-            <label htmlFor="titleFontWeight">Title weight</label>
-            <select
-              id="titleFontWeight"
-              value={styleOptions.titleFontWeight}
-              onChange={(event) => setStyleOptions((prev) => ({ ...prev, titleFontWeight: event.target.value }))}
-            >
-              <option value="thin">Super thin</option>
-              <option value="normal">Normal</option>
-            </select>
+            <div className={styles.fieldShell}>
+              <label htmlFor="titleFontWeight">Title weight</label>
+              <select
+                id="titleFontWeight"
+                value={styleOptions.titleFontWeight}
+                onChange={(event) => setStyleOptions((prev) => ({ ...prev, titleFontWeight: event.target.value }))}
+              >
+                <option value="thin">Super thin</option>
+                <option value="normal">Normal</option>
+              </select>
+            </div>
 
-            <label htmlFor="fontScale">Overall text scale (%)</label>
-            <input
-              id="fontScale"
-              type="number"
-              min="60"
-              max="140"
-              value={styleOptions.fontScale}
-              onChange={(event) => setStyleOptions((prev) => ({ ...prev, fontScale: Number(event.target.value) || prev.fontScale }))}
-            />
+            <div className={styles.fieldShell}>
+              <label htmlFor="fontScale">Overall text scale (%)</label>
+              <input
+                id="fontScale"
+                type="number"
+                min="60"
+                max="140"
+                value={styleOptions.fontScale}
+                onChange={(event) => setStyleOptions((prev) => ({ ...prev, fontScale: Number(event.target.value) || prev.fontScale }))}
+              />
+            </div>
           </div>
 
           <button type="submit" disabled={busy || buildingPreview}>
@@ -467,10 +489,8 @@ export default function Home() {
           <p className={styles.previewLabel}>Live preview</p>
           <div className={styles.previewPage}>
             {logoUrl && (
-              <>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={logoUrl} alt="Logo preview" className={styles.previewLogo} />
-              </>
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt="Logo preview" className={styles.previewLogo} />
             )}
             {(codedDocument?.blocks || []).map((block, index) => {
               const text = block?.text?.trim();
