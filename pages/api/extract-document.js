@@ -164,7 +164,33 @@ function textToCodedDocument(text) {
   }));
 
   if (!blocks.length) return { blocks: [{ role: 'body', text: ' ' }] };
-  return { blocks };
+  return { blocks: applyAlethraLayoutHeuristics(blocks) };
+}
+
+function applyAlethraLayoutHeuristics(blocks) {
+  const normalized = blocks
+    .map((block) => ({ ...block, text: block.text.trim() }))
+    .filter((block) => block.text);
+
+  if (!normalized.length) return [{ role: 'body', text: ' ' }];
+
+  const firstBlock = normalized[0];
+  const secondBlock = normalized[1];
+  const hasAlethraStandaloneTop = firstBlock?.text?.toLowerCase() === 'alethra' && secondBlock?.text;
+
+  const remapped = hasAlethraStandaloneTop
+    ? [{ role: 'title', text: `${firstBlock.text}\n${secondBlock.text}` }, ...normalized.slice(2)]
+    : normalized;
+
+  return remapped.map((block, index) => {
+    if (block.role !== 'body') return block;
+    const likelyFrontMatter = index <= 3;
+    const isConfidentialNotice = /\bconfidential\b/i.test(block.text);
+    if (likelyFrontMatter && isConfidentialNotice) {
+      return { ...block, role: 'centeredBody' };
+    }
+    return block;
+  });
 }
 
 function extractText(uploadedFile) {
