@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import styles from '../styles/Home.module.css';
 
 const DEFAULT_LOGO_URL = 'https://plusbrand.com/wp-content/uploads/2025/10/Copia-de-ALETHRA_Logo-scaled.png';
@@ -43,6 +43,7 @@ export default function Home() {
     ],
   });
   const [styleOptions, setStyleOptions] = useState(DEFAULT_STYLE_OPTIONS);
+  const previewRef = useRef(null);
 
   async function buildPreviewFromFile(file) {
     if (!file) return;
@@ -56,7 +57,7 @@ export default function Home() {
         data: base64,
       };
 
-      const response = await fetch('/api/generate-pdf', {
+      const response = await fetch('/api/extract-document', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ uploadedFile, previewOnly: true }),
@@ -102,62 +103,100 @@ export default function Home() {
     event.preventDefault();
     setStatus('');
 
-    if (!upload) {
-      setStatus('Drop or upload a file to convert.');
+    if (!previewRef.current) {
+      setStatus('Live preview is not ready yet.');
       return;
     }
 
     setBusy(true);
 
     try {
-      const base64 = await fileToBase64(upload);
-      const uploadedFile = {
-        name: upload.name,
-        mimeType: upload.type || 'application/octet-stream',
-        data: base64,
-      };
+      const previewHtml = previewRef.current.outerHTML;
+      const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=900,height=1100');
 
-      const response = await fetch('/api/generate-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName, uploadedFile, logoUrl, footerMain, footerSub, styleOptions, codedDocument }),
-      });
-
-      if (!response.ok) {
-        const payload = await response.json();
-        throw new Error(payload.error || 'Request failed');
+      if (!printWindow) {
+        throw new Error('Popup blocked. Please allow popups to export PDF.');
       }
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `${fileName || upload.name.replace(/\.[^/.]+$/, '') || 'document'}.pdf`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
+      const printableTitle = (fileName || upload?.name || 'document').replace(/\.[^/.]+$/, '') || 'document';
 
-      setStatus('PDF generated and downloaded successfully.');
+      printWindow.document.open();
+      printWindow.document.write(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${printableTitle}</title>
+    <style>
+      @page { size: Letter; margin: 0.5in; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: Inter, Arial, sans-serif;
+        background: #fff;
+      }
+      .print-shell {
+        width: 100%;
+        max-width: 8.5in;
+        margin: 0 auto;
+      }
+      .${styles.previewPage} {
+        border: 0;
+        border-radius: 0;
+        padding: 0;
+        min-height: auto;
+        margin-top: 0;
+        width: 100%;
+      }
+      .${styles.previewLogo} {
+        max-width: 160px;
+        max-height: 40px;
+        width: auto;
+        margin-bottom: 12px;
+      }
+      .${styles.previewFooter} {
+        margin-top: 20px;
+        padding-top: 10px;
+        border-top: 1px solid #eef2fa;
+        color: #6f7687;
+        font-size: 0.75rem;
+        display: grid;
+        gap: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="print-shell">${previewHtml}</div>
+    <script>
+      window.onload = () => {
+        window.print();
+      };
+    </script>
+  </body>
+</html>`);
+      printWindow.document.close();
+
+      setStatus('Print dialog opened. Choose “Save as PDF” to export the exact live preview.');
     } catch (error) {
-      setStatus(error.message);
+      setStatus(error.message || 'Unable to export live preview.');
     } finally {
       setBusy(false);
     }
   }
 
+
   return (
     <main className={styles.main}>
       <section className={styles.card}>
         <h1>Upload File → PDF</h1>
-        <p>Upload a file and convert it to PDF. Supported: PDF, DOCX, TXT, RTF, HTML. If OPENAI_API_KEY is set, text output is AI-polished for executive formatting. You can edit logo and footer text below.</p>
+        <p>Upload a file and convert it to PDF. Supported preview input: DOCX, TXT, RTF, HTML. The generated PDF exports exactly what you see in the live preview.</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
           <label htmlFor="upload">Upload a file (or drop below)</label>
           <input
             id="upload"
             type="file"
-            accept=".pdf,.docx,.txt,.rtf,.html,.htm"
+            accept=".docx,.txt,.rtf,.html,.htm"
             onChange={(event) => handleFileSelect(event.target.files?.[0])}
             required
           />
@@ -258,7 +297,7 @@ export default function Home() {
 
         <section className={styles.previewCard}>
           <p className={styles.previewLabel}>Live preview</p>
-          <div className={styles.previewPage}>
+          <div className={styles.previewPage} ref={previewRef}>
             {logoUrl && (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
