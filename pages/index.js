@@ -33,6 +33,7 @@ export default function Home() {
   const [footerMain, setFooterMain] = useState(DEFAULT_FOOTER_MAIN);
   const [footerSub, setFooterSub] = useState(DEFAULT_FOOTER_SUB);
   const [busy, setBusy] = useState(false);
+  const [buildingPreview, setBuildingPreview] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [codedDocument, setCodedDocument] = useState({
     blocks: [
@@ -47,6 +48,7 @@ export default function Home() {
     if (!file) return;
 
     try {
+      setBuildingPreview(true);
       const base64 = await fileToBase64(file);
       const uploadedFile = {
         name: file.name,
@@ -68,9 +70,12 @@ export default function Home() {
       const payload = await response.json();
       if (payload?.codedDocument?.blocks?.length) {
         setCodedDocument(payload.codedDocument);
+        setStatus('Preview ready. If this looks good, click Generate PDF to export this exact coded layout.');
       }
     } catch (error) {
       setStatus(error.message);
+    } finally {
+      setBuildingPreview(false);
     }
   }
 
@@ -246,8 +251,8 @@ export default function Home() {
             </select>
           </div>
 
-          <button type="submit" disabled={busy}>
-            {busy ? 'Generating...' : 'Generate PDF'}
+          <button type="submit" disabled={busy || buildingPreview}>
+            {buildingPreview ? 'Building coded preview...' : busy ? 'Generating...' : 'Generate PDF'}
           </button>
         </form>
 

@@ -505,9 +505,9 @@ async function codedDocumentToPdfBuffer(codedDocument, options = {}) {
   };
 
   const regularFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
-  const mediumFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>');
+  const mediumFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
   const titleFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
-  const thinTitleFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>');
+  const thinTitleFontObjectId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
 
   let logoObjectId = null;
   if (logoImage) {
