@@ -116,9 +116,12 @@ function extractZipEntry(buffer, targetName) {
 }
 
 function extractParagraphText(paragraphXml) {
-  const runs = paragraphXml.match(/<w:t\b[^>]*>[\s\S]*?<\/w:t>/g) || [];
-  const combined = runs
-    .map((run) => run.replace(/<w:t\b[^>]*>|<\/w:t>/g, ''))
+  const segments = paragraphXml.match(/<w:t\b[^>]*>[\s\S]*?<\/w:t>|<w:br\b[^>]*\/>/g) || [];
+  const combined = segments
+    .map((segment) => {
+      if (/^<w:br\b/i.test(segment)) return '\n';
+      return segment.replace(/<w:t\b[^>]*>|<\/w:t>/g, '');
+    })
     .join('')
     .trim();
 
@@ -158,10 +161,14 @@ function inferBlockRole(paragraph, index) {
 
 function textToCodedDocument(text) {
   const paragraphs = sanitizeText(text).split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
-  const blocks = paragraphs.map((paragraph, index) => ({
-    role: inferBlockRole(paragraph, index),
-    text: paragraph,
-  }));
+  const blocks = paragraphs.map((paragraph, index) => {
+    const role = inferBlockRole(paragraph, index);
+    const normalizedText = role === 'title' ? paragraph.replace(/\s*\n+\s*/g, ' ').trim() : paragraph;
+    return {
+      role,
+      text: normalizedText,
+    };
+  });
 
   if (!blocks.length) return { blocks: [{ role: 'body', text: ' ' }] };
   return { blocks: applyAlethraLayoutHeuristics(blocks) };
