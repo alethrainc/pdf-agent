@@ -263,11 +263,11 @@ function classifyLineStyle(role, styleOptions = DEFAULT_STYLE_OPTIONS) {
   const bodySize = Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize;
 
   if (role === 'title') {
-    return { font: titleFont, size: titleSize, lineHeight: Math.round(titleSize * 1.32), color: '0.13 0.13 0.15', centered: true };
+    return { font: titleFont, size: titleSize, lineHeight: Math.round(titleSize * 1.3), color: '0.13 0.13 0.15', centered: true };
   }
 
   if (role === 'heading') {
-    return { font: 'F2', size: headingSize, lineHeight: Math.round(headingSize * 1.44), color: '0.13 0.13 0.15' };
+    return { font: 'F2', size: headingSize, lineHeight: Math.round(headingSize * 1.4), color: '0.13 0.13 0.15' };
   }
 
   return { font: 'F1', size: bodySize, lineHeight: Math.round(bodySize * 1.6), color: '0.22 0.22 0.24' };
@@ -279,7 +279,7 @@ function buildLineCommand(line, x, y, style) {
 
 function getTextX(line, style, pageWidth, defaultX) {
   if (!style.centered) return defaultX;
-  const approxWidth = getVisualLength(line) * style.size * 0.28;
+  const approxWidth = getVisualLength(line) * style.size * 0.37;
   return Math.max(defaultX, (pageWidth - approxWidth) / 2);
 }
 
@@ -399,25 +399,17 @@ async function fetchLogoPdfImage(logoUrl) {
   }
 }
 
-function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeight, options, hasLogo) {
-  const leftRailWidth = 22;
-  const footerY = 28;
+function buildPageDecorationCommands(pageWidth, pageHeight, options, hasLogo) {
+  const footerY = 34;
   const footerMain = options.footerMain || DEFAULT_FOOTER_MAIN;
   const footerSub = options.footerSub || DEFAULT_FOOTER_SUB;
-  const pageLabel = `Page ${pageNumber} of ${totalPages}`;
-
-  const commands = [
-    'q',
-    '0.85 0.11 0.16 rg',
-    `0 0 ${leftRailWidth} ${pageHeight} re f`,
-    'Q',
-  ];
+  const commands = [];
 
   if (hasLogo) {
-    const logoWidth = 135;
-    const logoHeight = 34;
+    const logoWidth = 160;
+    const logoHeight = 40;
     const logoX = 54;
-    const logoY = pageHeight - 72;
+    const logoY = pageHeight - 74;
     commands.push(`q ${logoWidth} 0 0 ${logoHeight} ${logoX} ${logoY} cm /Im1 Do Q`);
   }
 
@@ -431,11 +423,6 @@ function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeig
       font: 'F1',
       size: 8,
       color: '0.35 0.35 0.35',
-    }),
-    buildLineCommand(pageLabel, pageWidth - 90, footerY - 7, {
-      font: 'F1',
-      size: 8,
-      color: '0.35 0.35 0.35',
     })
   );
 
@@ -445,15 +432,17 @@ function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeig
 async function codedDocumentToPdfBuffer(codedDocument, options = {}) {
   const pageWidth = 612;
   const pageHeight = 792;
-  const marginLeft = 72;
-  const marginTop = options.logoUrl ? 116 : 72;
-  const marginBottom = 74;
-  const maxChars = 74;
-  const paragraphGap = 8;
+  const marginLeft = 54;
+  const marginRight = 54;
+  const marginTop = options.logoUrl ? 128 : 72;
+  const marginBottom = 88;
+  const paragraphGap = 10;
   const styleOptions = {
     ...DEFAULT_STYLE_OPTIONS,
     ...(options.styleOptions || {}),
   };
+  const bodyFontSize = Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize;
+  const maxChars = Math.max(24, Math.floor((pageWidth - marginLeft - marginRight) / (bodyFontSize * 0.52)));
 
   const blocks = codedDocument?.blocks?.length ? codedDocument.blocks : [{ role: 'body', text: ' ' }];
 
@@ -521,7 +510,7 @@ async function codedDocumentToPdfBuffer(codedDocument, options = {}) {
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
     const pageLines = pages[pageIndex];
     const decorated = [
-      ...buildPageDecorationCommands(pageIndex + 1, pages.length, pageWidth, pageHeight, options, Boolean(logoImage)),
+      ...buildPageDecorationCommands(pageWidth, pageHeight, options, Boolean(logoImage)),
       ...pageLines,
     ];
 
