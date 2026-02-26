@@ -10,7 +10,7 @@ const DEFAULT_STYLE_OPTIONS = {
   titleFontSize: 30,
   headingFontSize: 17,
   bodyFontSize: 11,
-  titleFontWeight: 'thin',
+  bodyFontWeight: 'light',
 };
 
 
@@ -83,12 +83,19 @@ function getBlockStyle(blockRole, styleOptions) {
   return {
     fontSize,
     lineHeight: isTitle ? fontSize * 1.32 : isHeading ? fontSize * 1.42 : fontSize * 1.58,
-    fontStyle: isTitle
-      ? styleOptions.titleFontWeight === 'normal' ? 'bold' : 'normal'
-      : isHeading ? 'bold' : 'normal',
+    fontStyle: 'normal',
     align: isTitle || isCenteredBody ? 'center' : 'left',
     paragraphGap: isTitle ? 14 : isCenteredBody ? 12 : 10,
+    spacingBefore: isHeading ? 10 : 0,
+    spacingAfter: isHeading ? 10 : 0,
   };
+}
+
+function getBodyFontWeight(styleOptions) {
+  const option = styleOptions?.bodyFontWeight || DEFAULT_STYLE_OPTIONS.bodyFontWeight;
+  if (option === 'super-light') return 100;
+  if (option === 'extra-light') return 200;
+  return 300;
 }
 
 
@@ -334,7 +341,7 @@ export default function Home() {
         let y = contentTop;
 
         for (const block of preparedBlocks) {
-          const blockHeight = block.lines.length * block.lineHeight + block.paragraphGap;
+          const blockHeight = block.spacingBefore + (block.lines.length * block.lineHeight) + block.spacingAfter + block.paragraphGap;
 
           if (y + blockHeight > contentBottom && currentPage.length) {
             pages.push(currentPage);
@@ -342,7 +349,7 @@ export default function Home() {
             y = contentTop;
           }
 
-          currentPage.push({ ...block, yStart: y });
+          currentPage.push({ ...block, yStart: y + block.spacingBefore });
           y += blockHeight;
         }
 
@@ -529,14 +536,15 @@ export default function Home() {
               onChange={(event) => setStyleOptions((prev) => ({ ...prev, bodyFontSize: Number(event.target.value) || prev.bodyFontSize }))}
             />
 
-            <label htmlFor="titleFontWeight">Title weight</label>
+            <label htmlFor="bodyFontWeight">Body weight</label>
             <select
-              id="titleFontWeight"
-              value={styleOptions.titleFontWeight}
-              onChange={(event) => setStyleOptions((prev) => ({ ...prev, titleFontWeight: event.target.value }))}
+              id="bodyFontWeight"
+              value={styleOptions.bodyFontWeight}
+              onChange={(event) => setStyleOptions((prev) => ({ ...prev, bodyFontWeight: event.target.value }))}
             >
-              <option value="thin">Super thin</option>
-              <option value="normal">Normal</option>
+              <option value="light">Light</option>
+              <option value="extra-light">Extra-light</option>
+              <option value="super-light">Super-light</option>
             </select>
 
             <label htmlFor="fontScale">Overall text scale (%)</label>
@@ -580,7 +588,7 @@ export default function Home() {
               const isCenteredBody = block.role === 'centeredBody';
               const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
               const fontSize = Number((baseFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2));
-              const fontWeight = isTitle ? (styleOptions.titleFontWeight === 'thin' ? 200 : 500) : isHeading ? 500 : 400;
+              const fontWeight = isTitle || isHeading ? 400 : getBodyFontWeight(styleOptions);
               return (
                 <p
                   key={`${text}-${index}`}
@@ -589,7 +597,7 @@ export default function Home() {
                     lineHeight: isTitle ? 1.3 : isHeading ? 1.4 : 1.6,
                     fontWeight,
                     textAlign: isTitle || isCenteredBody ? 'center' : 'left',
-                    margin: isTitle ? '10px 0 14px' : '0 0 10px',
+                    margin: isTitle ? '10px 0 14px' : isHeading ? '10px 0' : '0 0 10px',
                   }}
                 >
                   {text}
