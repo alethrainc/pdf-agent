@@ -72,6 +72,7 @@ function getBlockStyle(blockRole, styleOptions) {
   const fontScale = (Number(styleOptions.fontScale) || DEFAULT_STYLE_OPTIONS.fontScale) / 100;
   const isTitle = blockRole === 'title';
   const isHeading = blockRole === 'heading';
+  const isCenteredBody = blockRole === 'centeredBody';
   const baseFontSize = isTitle
     ? Number(styleOptions.titleFontSize) || DEFAULT_STYLE_OPTIONS.titleFontSize
     : isHeading
@@ -85,8 +86,8 @@ function getBlockStyle(blockRole, styleOptions) {
     fontStyle: isTitle
       ? styleOptions.titleFontWeight === 'normal' ? 'bold' : 'normal'
       : isHeading ? 'bold' : 'normal',
-    align: isTitle ? 'center' : 'left',
-    paragraphGap: isTitle ? 14 : 10,
+    align: isTitle || isCenteredBody ? 'center' : 'left',
+    paragraphGap: isTitle ? 14 : isCenteredBody ? 12 : 10,
   };
 }
 
@@ -507,6 +508,7 @@ export default function Home() {
               if (!text) return null;
               const isTitle = block.role === 'title';
               const isHeading = block.role === 'heading';
+              const isCenteredBody = block.role === 'centeredBody';
               const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
               const fontSize = Number((baseFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2));
               const fontWeight = isTitle ? (styleOptions.titleFontWeight === 'thin' ? 200 : 500) : isHeading ? 500 : 400;
@@ -517,7 +519,7 @@ export default function Home() {
                     fontSize: `${fontSize}px`,
                     lineHeight: isTitle ? 1.3 : isHeading ? 1.4 : 1.6,
                     fontWeight,
-                    textAlign: isTitle ? 'center' : 'left',
+                    textAlign: isTitle || isCenteredBody ? 'center' : 'left',
                     margin: isTitle ? '10px 0 14px' : '0 0 10px',
                   }}
                 >
