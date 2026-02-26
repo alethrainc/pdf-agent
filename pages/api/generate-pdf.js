@@ -399,19 +399,11 @@ async function fetchLogoPdfImage(logoUrl) {
   }
 }
 
-function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeight, options, hasLogo) {
-  const leftRailWidth = 22;
+function buildPageDecorationCommands(pageWidth, pageHeight, options, hasLogo) {
   const footerY = 28;
   const footerMain = options.footerMain || DEFAULT_FOOTER_MAIN;
   const footerSub = options.footerSub || DEFAULT_FOOTER_SUB;
-  const pageLabel = `Page ${pageNumber} of ${totalPages}`;
-
-  const commands = [
-    'q',
-    '0.85 0.11 0.16 rg',
-    `0 0 ${leftRailWidth} ${pageHeight} re f`,
-    'Q',
-  ];
+  const commands = [];
 
   if (hasLogo) {
     const logoWidth = 135;
@@ -431,11 +423,6 @@ function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeig
       font: 'F1',
       size: 8,
       color: '0.35 0.35 0.35',
-    }),
-    buildLineCommand(pageLabel, pageWidth - 90, footerY - 7, {
-      font: 'F1',
-      size: 8,
-      color: '0.35 0.35 0.35',
     })
   );
 
@@ -445,10 +432,10 @@ function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeig
 async function codedDocumentToPdfBuffer(codedDocument, options = {}) {
   const pageWidth = 612;
   const pageHeight = 792;
-  const marginLeft = 72;
-  const marginTop = options.logoUrl ? 116 : 72;
+  const marginLeft = 46;
+  const marginTop = options.logoUrl ? 96 : 62;
   const marginBottom = 74;
-  const maxChars = 74;
+  const maxChars = 96;
   const paragraphGap = 8;
   const styleOptions = {
     ...DEFAULT_STYLE_OPTIONS,
@@ -521,7 +508,7 @@ async function codedDocumentToPdfBuffer(codedDocument, options = {}) {
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
     const pageLines = pages[pageIndex];
     const decorated = [
-      ...buildPageDecorationCommands(pageIndex + 1, pages.length, pageWidth, pageHeight, options, Boolean(logoImage)),
+      ...buildPageDecorationCommands(pageWidth, pageHeight, options, Boolean(logoImage)),
       ...pageLines,
     ];
 
