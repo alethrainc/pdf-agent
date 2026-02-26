@@ -5,6 +5,7 @@ const DEFAULT_LOGO_URL = 'https://plusbrand.com/wp-content/uploads/2025/10/Copia
 const DEFAULT_FOOTER_MAIN = '© 2026 ALETHRA™. All rights reserved.';
 const DEFAULT_FOOTER_SUB = 'Confidential – Not for distribution without written authorization.';
 const DEFAULT_STYLE_OPTIONS = {
+  fontScale: 100,
   titleFontSize: 30,
   headingFontSize: 17,
   bodyFontSize: 11,
@@ -67,13 +68,15 @@ async function loadLogoDataUrl(url) {
 }
 
 function getBlockStyle(blockRole, styleOptions) {
+  const fontScale = (Number(styleOptions.fontScale) || DEFAULT_STYLE_OPTIONS.fontScale) / 100;
   const isTitle = blockRole === 'title';
   const isHeading = blockRole === 'heading';
-  const fontSize = isTitle
+  const baseFontSize = isTitle
     ? Number(styleOptions.titleFontSize) || DEFAULT_STYLE_OPTIONS.titleFontSize
     : isHeading
       ? Number(styleOptions.headingFontSize) || DEFAULT_STYLE_OPTIONS.headingFontSize
       : Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize;
+  const fontSize = Math.max(8, Number((baseFontSize * fontScale).toFixed(2)));
 
   return {
     fontSize,
@@ -244,14 +247,15 @@ export default function Home() {
       }
 
       if (!currentPage.length) {
+        const scaledBodySize = getBlockStyle('body', styleOptions).fontSize;
         currentPage.push({
           ...getBlockStyle('body', styleOptions),
           lines: [' '],
           yStart: contentTop,
           align: 'left',
           fontStyle: 'normal',
-          fontSize: Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize,
-          lineHeight: (Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize) * 1.58,
+          fontSize: scaledBodySize,
+          lineHeight: scaledBodySize * 1.58,
         });
       }
 
@@ -286,7 +290,8 @@ export default function Home() {
         }
 
         pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(10);
+        const footerFontSize = Math.max(8, Number((10 * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2)));
+        pdf.setFontSize(footerFontSize);
         pdf.setTextColor(0, 0, 0);
         pdf.text(footerMain || DEFAULT_FOOTER_MAIN, 72, footerY);
         pdf.text(footerSub || DEFAULT_FOOTER_SUB, 72, footerY + 17);
@@ -408,6 +413,16 @@ export default function Home() {
               <option value="thin">Super thin</option>
               <option value="normal">Normal</option>
             </select>
+
+            <label htmlFor="fontScale">Overall text scale (%)</label>
+            <input
+              id="fontScale"
+              type="number"
+              min="60"
+              max="140"
+              value={styleOptions.fontScale}
+              onChange={(event) => setStyleOptions((prev) => ({ ...prev, fontScale: Number(event.target.value) || prev.fontScale }))}
+            />
           </div>
 
           <button type="submit" disabled={busy || buildingPreview}>
@@ -429,7 +444,8 @@ export default function Home() {
               if (!text) return null;
               const isTitle = block.role === 'title';
               const isHeading = block.role === 'heading';
-              const fontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
+              const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
+              const fontSize = Number((baseFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2));
               const fontWeight = isTitle ? (styleOptions.titleFontWeight === 'thin' ? 200 : 500) : isHeading ? 500 : 400;
               return (
                 <p
