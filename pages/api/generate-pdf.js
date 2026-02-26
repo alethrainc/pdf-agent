@@ -263,14 +263,14 @@ function classifyLineStyle(role, styleOptions = DEFAULT_STYLE_OPTIONS) {
   const bodySize = Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize;
 
   if (role === 'title') {
-    return { font: titleFont, size: titleSize, lineHeight: Math.round(titleSize * 1.32), color: '0.13 0.13 0.15', centered: true };
+    return { font: titleFont, size: titleSize, lineHeight: Math.round(titleSize * 1.32), color: '0 0 0', centered: true };
   }
 
   if (role === 'heading') {
-    return { font: 'F2', size: headingSize, lineHeight: Math.round(headingSize * 1.44), color: '0.13 0.13 0.15' };
+    return { font: 'F2', size: headingSize, lineHeight: Math.round(headingSize * 1.44), color: '0 0 0' };
   }
 
-  return { font: 'F1', size: bodySize, lineHeight: Math.round(bodySize * 1.6), color: '0.22 0.22 0.24' };
+  return { font: 'F1', size: bodySize, lineHeight: Math.round(bodySize * 1.6), color: '0 0 0' };
 }
 
 function buildLineCommand(line, x, y, style) {
@@ -399,11 +399,19 @@ async function fetchLogoPdfImage(logoUrl) {
   }
 }
 
-function buildPageDecorationCommands(pageWidth, pageHeight, options, hasLogo) {
+function buildPageDecorationCommands(pageNumber, totalPages, pageWidth, pageHeight, options, hasLogo) {
+  const leftRailWidth = 22;
   const footerY = 28;
   const footerMain = options.footerMain || DEFAULT_FOOTER_MAIN;
   const footerSub = options.footerSub || DEFAULT_FOOTER_SUB;
-  const commands = [];
+  const pageLabel = `Page ${pageNumber} of ${totalPages}`;
+
+  const commands = [
+    'q',
+    '0.83 0.12 0.18 rg',
+    `0 0 ${leftRailWidth} ${pageHeight} re f`,
+    'Q',
+  ];
 
   if (hasLogo) {
     const logoWidth = 135;
@@ -414,15 +422,20 @@ function buildPageDecorationCommands(pageWidth, pageHeight, options, hasLogo) {
   }
 
   commands.push(
-    buildLineCommand(footerMain, 46, footerY + 10, {
+    buildLineCommand(footerMain, 72, footerY + 10, {
       font: 'F1',
-      size: 9,
-      color: '0.35 0.35 0.35',
+      size: 10,
+      color: '0 0 0',
     }),
-    buildLineCommand(footerSub, 46, footerY - 7, {
+    buildLineCommand(footerSub, 72, footerY - 7, {
       font: 'F1',
-      size: 8,
-      color: '0.35 0.35 0.35',
+      size: 10,
+      color: '0 0 0',
+    }),
+    buildLineCommand(pageLabel, pageWidth - 120, footerY - 7, {
+      font: 'F1',
+      size: 10,
+      color: '0 0 0',
     })
   );
 
@@ -432,10 +445,10 @@ function buildPageDecorationCommands(pageWidth, pageHeight, options, hasLogo) {
 async function codedDocumentToPdfBuffer(codedDocument, options = {}) {
   const pageWidth = 612;
   const pageHeight = 792;
-  const marginLeft = 46;
-  const marginTop = options.logoUrl ? 96 : 62;
-  const marginBottom = 74;
-  const maxChars = 96;
+  const marginLeft = 72;
+  const marginTop = options.logoUrl ? 112 : 72;
+  const marginBottom = 70;
+  const maxChars = 84;
   const paragraphGap = 8;
   const styleOptions = {
     ...DEFAULT_STYLE_OPTIONS,
@@ -508,7 +521,7 @@ async function codedDocumentToPdfBuffer(codedDocument, options = {}) {
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
     const pageLines = pages[pageIndex];
     const decorated = [
-      ...buildPageDecorationCommands(pageWidth, pageHeight, options, Boolean(logoImage)),
+      ...buildPageDecorationCommands(pageIndex + 1, pages.length, pageWidth, pageHeight, options, Boolean(logoImage)),
       ...pageLines,
     ];
 
@@ -556,10 +569,10 @@ async function extractFormattedText(uploadedFile) {
   const rawBuffer = Buffer.from(uploadedFile.data, 'base64');
   const extension = getExtension(uploadedFile.name);
 
-  if (extension === 'docx') return formatTextWithAI(docxToText(rawBuffer), uploadedFile.name);
-  if (extension === 'txt') return formatTextWithAI(rawBuffer.toString('utf8'), uploadedFile.name);
-  if (extension === 'rtf') return formatTextWithAI(rtfToText(rawBuffer.toString('utf8')), uploadedFile.name);
-  if (extension === 'html' || extension === 'htm') return formatTextWithAI(htmlToText(rawBuffer.toString('utf8')), uploadedFile.name);
+  if (extension === 'docx') return docxToText(rawBuffer);
+  if (extension === 'txt') return rawBuffer.toString('utf8');
+  if (extension === 'rtf') return rtfToText(rawBuffer.toString('utf8'));
+  if (extension === 'html' || extension === 'htm') return htmlToText(rawBuffer.toString('utf8'));
   throw new Error('Preview is available for DOCX, TXT, RTF, and HTML files.');
 }
 
