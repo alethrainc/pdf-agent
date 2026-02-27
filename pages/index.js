@@ -16,19 +16,14 @@ const DEFAULT_STYLE_OPTIONS = {
 };
 
 const FONT_WEIGHT_PRESETS = {
-  normal: { fontStyle: 'normal', charSpace: 0 },
-  light: { fontStyle: 'normal', charSpace: 0.08 },
-  'extra-light': { fontStyle: 'normal', charSpace: 0.16 },
-  'super-thin': { fontStyle: 'normal', charSpace: 0.24 },
+  normal: { fontFamily: 'helvetica', fontStyle: 'normal' },
+  light: { fontFamily: 'times', fontStyle: 'normal' },
+  'extra-light': { fontFamily: 'courier', fontStyle: 'normal' },
+  'super-thin': { fontFamily: 'times', fontStyle: 'italic' },
 };
 
 function getWeightPreset(weight) {
   return FONT_WEIGHT_PRESETS[weight] || FONT_WEIGHT_PRESETS.normal;
-}
-
-function getBlockTextColor(blockRole) {
-  if (blockRole === 'body' || blockRole === 'centeredBody') return [55, 65, 81];
-  return [31, 41, 55];
 }
 
 function loadScriptOnce(src, globalName) {
@@ -110,10 +105,9 @@ function getBlockStyle(blockRole, styleOptions, nextBlockRole = null, previousBl
   return {
     fontSize,
     lineHeight: isTitle ? fontSize * 1.3 : isHeading ? fontSize * 1.42 : isCenteredBody ? fontSize * 1.35 : fontSize * 1.58,
+    fontFamily: weightPreset.fontFamily,
     fontStyle: weightPreset.fontStyle,
     fontWeight: blockFontWeight,
-    charSpace: weightPreset.charSpace,
-    textColor: getBlockTextColor(blockRole),
     align: isTitle || isCenteredBody ? 'center' : 'left',
     spacingBefore: isHeading ? headingSpacing : 0,
     spacingAfter: isHeading ? headingSpacing : isTitle ? titleSpacingAfter : isCenteredBody ? 8 : 10,
@@ -228,7 +222,7 @@ function createPdfDocument({
       const nextBlockRole = collection[index + 1]?.role || null;
       const previousBlockRole = collection[index - 1]?.role || null;
       const style = getBlockStyle(block.role, styleOptions, nextBlockRole, previousBlockRole);
-      pdf.setFont('helvetica', style.fontStyle);
+      pdf.setFont(style.fontFamily, style.fontStyle);
       pdf.setFontSize(style.fontSize);
       const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.9 : textWidth);
       return { ...style, lines };
@@ -259,10 +253,8 @@ function createPdfDocument({
       lines: [' '],
       yStart: contentTop,
       align: 'left',
-      fontStyle: 'normal',
-      fontWeight: styleOptions.bodyFontWeight,
       ...getWeightPreset(styleOptions.bodyFontWeight),
-      textColor: getBlockTextColor('body'),
+      fontWeight: styleOptions.bodyFontWeight,
       fontSize: scaledBodySize,
       lineHeight: scaledBodySize * 1.58,
     });
@@ -294,10 +286,9 @@ function createPdfDocument({
     }
 
     for (const block of pages[pageIndex]) {
-      pdf.setFont('helvetica', block.fontStyle);
+      pdf.setFont(block.fontFamily || 'helvetica', block.fontStyle);
       pdf.setFontSize(block.fontSize);
-      pdf.setTextColor(...block.textColor);
-      pdf.setCharSpace(block.charSpace || 0);
+      pdf.setTextColor(0, 0, 0);
 
       let lineY = block.yStart;
       for (const line of block.lines) {
@@ -309,7 +300,6 @@ function createPdfDocument({
         lineY += block.lineHeight;
       }
 
-      pdf.setCharSpace(0);
     }
 
     pdf.setFont('helvetica', 'normal');
@@ -680,6 +670,8 @@ export default function Home() {
               <option value="extra-light">Extra-light</option>
               <option value="super-thin">Super-thin</option>
             </select>
+
+            <p className={styles.weightHint}>PDF engines only include a few built-in font families. “Light” and thinner options switch to slimmer built-in faces for a visibly thinner look.</p>
 
             <label htmlFor="fontScale">Overall text scale (%)</label>
             <input
