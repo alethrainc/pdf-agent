@@ -25,6 +25,11 @@ const CUSTOM_WEIGHT_FONT_LABELS = {
   light: 'Light',
 };
 
+const DEFAULT_WEIGHT_FONT_FILES = {
+  normal: 'Helvetica-01.ttf',
+  light: 'Helvetica-Light-05.ttf',
+};
+
 function getFontDisplayName(fontUrl = '') {
   return fontUrl.split('/').pop() || fontUrl;
 }
@@ -416,6 +421,7 @@ export default function Home() {
   const [customWeightFonts, setCustomWeightFonts] = useState({});
   const [availableFonts, setAvailableFonts] = useState([]);
   const [selectedWeightFonts, setSelectedWeightFonts] = useState({});
+  const selectedWeightFontsRef = useRef(selectedWeightFonts);
 
   async function buildPreviewFromFile(file) {
     if (!file) return;
@@ -531,6 +537,10 @@ export default function Home() {
   }, [pdfPreviewUrl]);
 
   useEffect(() => {
+    selectedWeightFontsRef.current = selectedWeightFonts;
+  }, [selectedWeightFonts]);
+
+  useEffect(() => {
     let active = true;
 
     async function loadFonts() {
@@ -542,7 +552,18 @@ export default function Home() {
         }
 
         if (active) {
-          setAvailableFonts(payload.fonts || []);
+          const fonts = payload.fonts || [];
+          setAvailableFonts(fonts);
+
+          for (const [weight, defaultFileName] of Object.entries(DEFAULT_WEIGHT_FONT_FILES)) {
+            const alreadySelected = selectedWeightFontsRef.current[weight];
+            if (alreadySelected) continue;
+
+            const defaultFont = fonts.find((font) => font.name.toLowerCase() === defaultFileName.toLowerCase());
+            if (!defaultFont) continue;
+
+            await handleCustomWeightFontChange(weight, defaultFont.url);
+          }
         }
       } catch (error) {
         if (active) {
