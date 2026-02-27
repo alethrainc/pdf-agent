@@ -2,7 +2,7 @@
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: #f4f6fb;
+  background: #fff5f5;
   padding: 24px;
   font-family: Inter, Arial, sans-serif;
 }
@@ -11,15 +11,15 @@
   width: 100%;
   max-width: 980px;
   background: #fff;
-  border: 1px solid #e6eaf3;
+  border: 1px solid #f0d5d8;
   border-radius: 18px;
-  box-shadow: 0 12px 34px rgba(7, 17, 43, 0.08);
+  box-shadow: 0 12px 34px rgba(137, 22, 32, 0.08);
   padding: 28px;
 }
 
 .subtitle {
   margin-top: 8px;
-  color: #5f6880;
+  color: #7f4a51;
 }
 
 .form {
@@ -28,13 +28,8 @@
   margin: 20px 0 24px;
 }
 
-.uploadLabel {
-  font-weight: 600;
-  color: #2c3551;
-}
-
 .uploadInput {
-  max-width: 280px;
+  display: none;
 }
 
 .form input,
@@ -53,9 +48,9 @@
 }
 
 .dropZone {
-  border: 2px dashed #bac6e9;
-  background: #f8faff;
-  color: #33406f;
+  border: 2px dashed #e7b4b9;
+  background: #fff8f9;
+  color: #7a262f;
   border-radius: 12px;
   padding: 34px 20px;
   text-align: center;
@@ -65,22 +60,22 @@
 }
 
 .dropZoneActive {
-  border-color: #3055ee;
-  background: #eef3ff;
+  border-color: #c62828;
+  background: #ffecef;
 }
 
 .settingsPanel {
   margin-top: 4px;
   padding: 12px;
-  border: 1px solid #e2e7f2;
+  border: 1px solid #f2dee1;
   border-radius: 12px;
-  background: #fafbff;
+  background: #fff8f9;
 }
 
 .settingsPanel summary {
   cursor: pointer;
   font-weight: 600;
-  color: #2f3a58;
+  color: #7c1f2c;
   margin-bottom: 10px;
 }
 
@@ -90,7 +85,7 @@
 }
 
 .form button {
-  background: #3055ee;
+  background: #c62828;
   color: white;
   border: 0;
   border-radius: 10px;
@@ -105,13 +100,13 @@
 }
 
 .previewCard {
-  border-top: 1px solid #e8ebf3;
+  border-top: 1px solid #f1dfe1;
   padding-top: 18px;
 }
 
 .previewLabel {
   margin: 0 0 10px;
-  color: #556080;
+  color: #7f4a51;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -123,7 +118,7 @@
 }
 
 .previewPage {
-  border: 1px solid #dbe2f1;
+  border: 1px solid #f0d9dd;
   border-radius: 12px;
   background: #fff;
   overflow: hidden;
@@ -133,9 +128,9 @@
 .previewTitle {
   margin: 0;
   padding: 10px 12px;
-  border-bottom: 1px solid #edf1f8;
-  background: #fafcff;
-  color: #364266;
+  border-bottom: 1px solid #f5e7e9;
+  background: #fffafb;
+  color: #7f1d2a;
   font-size: 0.9rem;
   font-weight: 600;
 }
@@ -149,7 +144,7 @@
 .previewUnavailable {
   margin: 0;
   padding: 16px;
-  color: #6f7687;
+  color: #8f5b62;
   font-size: 0.9rem;
 }
 
@@ -157,7 +152,7 @@
   margin: 2px 0 6px;
   font-size: 0.82rem;
   line-height: 1.35;
-  color: #5f6880;
+  color: #7f4a51;
 }
 
 .customFontGrid {
@@ -175,5 +170,5 @@
   margin-top: 12px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #eef4ff;
+  background: #ffecef;
 }
