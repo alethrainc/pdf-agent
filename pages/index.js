@@ -10,9 +10,16 @@ const DEFAULT_STYLE_OPTIONS = {
   titleFontSize: 30,
   headingFontSize: 17,
   bodyFontSize: 11,
-  titleFontWeight: 'thin',
-  bodyFontWeight: 'light',
+  titleFontWeight: 'super-thin',
+  headingFontWeight: 'normal',
+  bodyFontWeight: 'super-thin',
 };
+
+const THIN_FONT_FILE = 'Roboto-Thin.ttf';
+const THIN_FONT_NAME = 'RobotoThin';
+const THIN_FONT_URL = 'https://raw.githubusercontent.com/google/fonts/main/apache/roboto/Roboto-Thin.ttf';
+
+let thinFontBase64Promise;
 
 
 
@@ -69,6 +76,17 @@ async function loadLogoDataUrl(url) {
   return { dataUrl, ...size };
 }
 
+function getPdfFont(weight) {
+  if (weight === 'super-thin') {
+    return { fontName: THIN_FONT_NAME, fontStyle: 'normal' };
+  }
+
+  return {
+    fontName: 'helvetica',
+    fontStyle: weight === 'bold' ? 'bold' : 'normal',
+  };
+}
+
 function getBlockStyle(blockRole, styleOptions, nextBlockRole = null, previousBlockRole = null) {
   const fontScale = (Number(styleOptions.fontScale) || DEFAULT_STYLE_OPTIONS.fontScale) / 100;
   const isTitle = blockRole === 'title';
@@ -85,17 +103,55 @@ function getBlockStyle(blockRole, styleOptions, nextBlockRole = null, previousBl
   const headingSpacing = Math.max(8, Number((fontSize * 0.55).toFixed(2)));
 
   const titleSpacingAfter = nextBlockRole === 'centeredBody' ? -6 : 14;
+  const configuredWeight = isTitle
+    ? styleOptions.titleFontWeight
+    : isHeading
+      ? styleOptions.headingFontWeight
+      : styleOptions.bodyFontWeight;
+  const { fontName, fontStyle } = getPdfFont(configuredWeight);
 
   return {
     fontSize,
     lineHeight: isTitle ? fontSize * 1.3 : isHeading ? fontSize * 1.42 : isCenteredBody ? fontSize * 1.35 : fontSize * 1.58,
-    fontStyle: isTitle
-      ? styleOptions.titleFontWeight === 'normal' ? 'bold' : 'normal'
-      : isHeading ? 'normal' : 'normal',
+    fontName,
+    fontStyle,
     align: isTitle || isCenteredBody ? 'center' : 'left',
     spacingBefore: isHeading ? headingSpacing : 0,
     spacingAfter: isHeading ? headingSpacing : isTitle ? titleSpacingAfter : isCenteredBody ? 8 : 10,
   };
+}
+
+async function loadThinFontBase64() {
+  if (!thinFontBase64Promise) {
+    thinFontBase64Promise = fetch(THIN_FONT_URL)
+      .then((response) => {
+        if (!response.ok) throw new Error('Unable to load super-thin font.');
+        return response.arrayBuffer();
+      })
+      .then((buffer) => {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const chunk = 0x8000;
+
+        for (let index = 0; index < bytes.length; index += chunk) {
+          const slice = bytes.subarray(index, index + chunk);
+          binary += String.fromCharCode(...slice);
+        }
+
+        return btoa(binary);
+      });
+  }
+
+  return thinFontBase64Promise;
+}
+
+async function registerPdfFonts(pdf, styleOptions) {
+  const weights = [styleOptions.titleFontWeight, styleOptions.headingFontWeight, styleOptions.bodyFontWeight];
+  if (!weights.includes('super-thin')) return;
+
+  const thinFontBase64 = await loadThinFontBase64();
+  pdf.addFileToVFS(THIN_FONT_FILE, thinFontBase64);
+  pdf.addFont(THIN_FONT_FILE, THIN_FONT_NAME, 'normal');
 }
 
 function getImageFormat(dataUrl) {
@@ -173,7 +229,7 @@ function formatBlockLinesForPdf(pdf, text, maxWidth) {
   return outputLines;
 }
 
-function createPdfDocument({
+async function createPdfDocument({
   jsPDF,
   blocks,
   styleOptions,
@@ -187,6 +243,8 @@ function createPdfDocument({
     unit: 'pt',
     format: 'letter',
   });
+
+  await registerPdfFonts(pdf, styleOptions);
 
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
@@ -206,7 +264,7 @@ function createPdfDocument({
       const nextBlockRole = collection[index + 1]?.role || null;
       const previousBlockRole = collection[index - 1]?.role || null;
       const style = getBlockStyle(block.role, styleOptions, nextBlockRole, previousBlockRole);
-      pdf.setFont('helvetica', style.fontStyle);
+      pdf.setFont(style.fontName, style.fontStyle);
       pdf.setFontSize(style.fontSize);
       const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.9 : textWidth);
       return { ...style, lines };
@@ -269,7 +327,7 @@ function createPdfDocument({
     }
 
     for (const block of pages[pageIndex]) {
-      pdf.setFont('helvetica', block.fontStyle);
+      pdf.setFont(block.fontName, block.fontStyle);
       pdf.setFontSize(block.fontSize);
       pdf.setTextColor(0, 0, 0);
 
@@ -405,7 +463,7 @@ export default function Home() {
         if (!jsPDF) throw new Error('Unable to initialize PDF preview.');
 
         const logoAsset = await loadLogoDataUrl(logoUrl);
-        const pdf = createPdfDocument({
+        const pdf = await createPdfDocument({
           jsPDF,
           blocks: codedDocument?.blocks || [],
           styleOptions,
@@ -487,7 +545,7 @@ export default function Home() {
         const payload = await response.json();
         const extractedBlocks = payload?.codedDocument?.blocks || codedDocument?.blocks || [];
 
-        const pdf = createPdfDocument({
+        const pdf = await createPdfDocument({
           jsPDF,
           blocks: extractedBlocks,
           styleOptions,
@@ -623,8 +681,18 @@ export default function Home() {
               value={styleOptions.titleFontWeight}
               onChange={(event) => setStyleOptions((prev) => ({ ...prev, titleFontWeight: event.target.value }))}
             >
-              <option value="thin">Super thin</option>
               <option value="normal">Normal</option>
+              <option value="super-thin">Super thin</option>
+            </select>
+
+            <label htmlFor="headingFontWeight">Heading weight</label>
+            <select
+              id="headingFontWeight"
+              value={styleOptions.headingFontWeight}
+              onChange={(event) => setStyleOptions((prev) => ({ ...prev, headingFontWeight: event.target.value }))}
+            >
+              <option value="normal">Normal</option>
+              <option value="super-thin">Super thin</option>
             </select>
 
             <label htmlFor="bodyFontWeight">Body weight</label>
@@ -633,9 +701,8 @@ export default function Home() {
               value={styleOptions.bodyFontWeight}
               onChange={(event) => setStyleOptions((prev) => ({ ...prev, bodyFontWeight: event.target.value }))}
             >
-              <option value="light">Light</option>
-              <option value="extra-light">Extra-light</option>
-              <option value="super-light">Super-light</option>
+              <option value="normal">Normal</option>
+              <option value="super-thin">Super thin</option>
             </select>
 
             <label htmlFor="fontScale">Overall text scale (%)</label>
