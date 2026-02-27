@@ -6,13 +6,13 @@ const DEFAULT_FOOTER_MAIN = '© 2026 ALETHRA™. All rights reserved.';
 const DEFAULT_FOOTER_SUB = 'Confidential – Not for distribution without written authorization.';
 const DEFAULT_CONFIDENTIAL_TEXT = 'Confidential, Restricted Distribution\nVersion 1.0 – March 2026';
 const DEFAULT_STYLE_OPTIONS = {
-  fontScale: 100,
+  fontScale: 70,
   titleFontSize: 30,
   headingFontSize: 17,
   bodyFontSize: 11,
-  titleFontWeight: 'light',
-  headingFontWeight: 'normal',
-  bodyFontWeight: 'normal',
+  titleFontWeight: 'normal',
+  headingFontWeight: 'light',
+  bodyFontWeight: 'light',
 };
 
 const FONT_WEIGHT_PRESETS = {
