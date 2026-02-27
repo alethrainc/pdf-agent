@@ -142,3 +142,22 @@
   display: grid;
   gap: 4px;
 }
+
+.previewFrame {
+  width: 100%;
+  min-height: 500px;
+  border: 0;
+  border-radius: 8px;
+  background: #f4f6fb;
+}
+
+.previewPlaceholder {
+  margin: 0;
+  color: #6f7687;
+}
+
+.previewMeta {
+  margin: 8px 0 0;
+  color: #6f7687;
+  font-size: 0.85rem;
+}
