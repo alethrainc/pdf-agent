@@ -95,6 +95,13 @@ function getBlockStyle(blockRole, styleOptions) {
   };
 }
 
+function shouldCenterConfidentialLine(block) {
+  const text = String(block?.text || '').trim();
+  if (!text) return false;
+  if (block?.role === 'centeredBody') return true;
+  return /^confidential[\s,:-]/i.test(text);
+}
+
 function getBodyPreviewWeight(weightOption) {
   if (weightOption === 'super-light') return 100;
   if (weightOption === 'extra-light') return 200;
@@ -319,8 +326,8 @@ export default function Home() {
         const pageWidth = pdf.internal.pageSize.getWidth();
         const pageHeight = pdf.internal.pageSize.getHeight();
         const stripeWidth = 22;
-        const textLeft = 72;
-        const textRight = pageWidth - 46;
+        const textLeft = 56;
+        const textRight = pageWidth - 34;
         const textWidth = textRight - textLeft;
         const footerY = pageHeight - 42;
         const contentTop = 112;
@@ -331,10 +338,11 @@ export default function Home() {
           .map((block) => {
             const text = block?.text?.trim();
             if (!text) return null;
-            const style = getBlockStyle(block.role, styleOptions);
+            const effectiveRole = shouldCenterConfidentialLine(block) ? 'centeredBody' : block.role;
+            const style = getBlockStyle(effectiveRole, styleOptions);
             pdf.setFont('helvetica', style.fontStyle);
             pdf.setFontSize(style.fontSize);
-            const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.75 : textWidth);
+            const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.9 : textWidth);
             return { ...style, lines };
           })
           .filter(Boolean);
@@ -596,9 +604,10 @@ export default function Home() {
             {(codedDocument?.blocks || []).map((block, index) => {
               const text = block?.text?.trim();
               if (!text) return null;
+              const centerAsConfidential = shouldCenterConfidentialLine(block);
               const isTitle = block.role === 'title';
               const isHeading = block.role === 'heading';
-              const isCenteredBody = block.role === 'centeredBody';
+              const isCenteredBody = block.role === 'centeredBody' || centerAsConfidential;
               const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
               const fontSize = Number((baseFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2));
               const fontWeight = isTitle
