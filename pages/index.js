@@ -15,19 +15,16 @@ const DEFAULT_STYLE_OPTIONS = {
   bodyFontWeight: 'normal',
 };
 
-const FONT_WEIGHT_TEXT_COLOR = {
-  normal: [0, 0, 0],
-  light: [45, 45, 45],
-  'extra-light': [80, 80, 80],
-  'super-thin': [110, 110, 110],
+const FONT_WEIGHT_RENDER_OPTIONS = {
+  normal: { renderingMode: 'fill', lineWidth: 0 },
+  light: { renderingMode: 'fillThenStroke', lineWidth: 0.2 },
+  'extra-light': { renderingMode: 'stroke', lineWidth: 0.16 },
+  'super-thin': { renderingMode: 'stroke', lineWidth: 0.1 },
 };
 
-function getWeightTextColor(weight) {
-  return FONT_WEIGHT_TEXT_COLOR[weight] || FONT_WEIGHT_TEXT_COLOR.normal;
+function getWeightRenderOptions(weight) {
+  return FONT_WEIGHT_RENDER_OPTIONS[weight] || FONT_WEIGHT_RENDER_OPTIONS.normal;
 }
-
-
-
 
 
 function loadScriptOnce(src, globalName) {
@@ -104,11 +101,15 @@ function getBlockStyle(blockRole, styleOptions, nextBlockRole = null, previousBl
       ? styleOptions.headingFontWeight
       : styleOptions.bodyFontWeight;
 
+  const renderOptions = getWeightRenderOptions(blockFontWeight);
+
   return {
     fontSize,
     lineHeight: isTitle ? fontSize * 1.3 : isHeading ? fontSize * 1.42 : isCenteredBody ? fontSize * 1.35 : fontSize * 1.58,
     fontStyle: 'normal',
-    textColor: getWeightTextColor(blockFontWeight),
+    fontWeight: blockFontWeight,
+    renderingMode: renderOptions.renderingMode,
+    lineWidth: renderOptions.lineWidth,
     align: isTitle || isCenteredBody ? 'center' : 'left',
     spacingBefore: isHeading ? headingSpacing : 0,
     spacingAfter: isHeading ? headingSpacing : isTitle ? titleSpacingAfter : isCenteredBody ? 8 : 10,
@@ -255,7 +256,8 @@ function createPdfDocument({
       yStart: contentTop,
       align: 'left',
       fontStyle: 'normal',
-      textColor: getWeightTextColor(styleOptions.bodyFontWeight),
+      fontWeight: styleOptions.bodyFontWeight,
+      ...getWeightRenderOptions(styleOptions.bodyFontWeight),
       fontSize: scaledBodySize,
       lineHeight: scaledBodySize * 1.58,
     });
@@ -289,14 +291,15 @@ function createPdfDocument({
     for (const block of pages[pageIndex]) {
       pdf.setFont('helvetica', block.fontStyle);
       pdf.setFontSize(block.fontSize);
-      pdf.setTextColor(...block.textColor);
+      pdf.setTextColor(0, 0, 0);
+      pdf.setLineWidth(block.lineWidth || 0);
 
       let lineY = block.yStart;
       for (const line of block.lines) {
         if (block.align === 'center') {
-          pdf.text(line, pageWidth / 2, lineY, { align: 'center' });
+          pdf.text(line, pageWidth / 2, lineY, { align: 'center', renderingMode: block.renderingMode });
         } else {
-          pdf.text(line, textLeft, lineY);
+          pdf.text(line, textLeft, lineY, { renderingMode: block.renderingMode });
         }
         lineY += block.lineHeight;
       }
