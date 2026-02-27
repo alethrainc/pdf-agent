@@ -6,17 +6,41 @@ const DEFAULT_FOOTER_MAIN = '© 2026 ALETHRA™. All rights reserved.';
 const DEFAULT_FOOTER_SUB = 'Confidential – Not for distribution without written authorization.';
 const DEFAULT_CONFIDENTIAL_TEXT = 'Confidential, Restricted Distribution\nVersion 1.0 – March 2026';
 const DEFAULT_STYLE_OPTIONS = {
-  fontScale: 100,
-  titleFontSize: 30,
+  fontScale: 70,
+  titleFontSize: 29,
   headingFontSize: 17,
-  bodyFontSize: 11,
-  titleFontWeight: 'thin',
+  bodyFontSize: 15,
+  titleFontWeight: 'normal',
+  headingFontWeight: 'light',
   bodyFontWeight: 'light',
 };
 
+const FONT_WEIGHT_PRESETS = {
+  normal: { fontFamily: 'helvetica', fontStyle: 'normal' },
+  light: { fontFamily: 'times', fontStyle: 'normal' },
+};
 
+const CUSTOM_WEIGHT_FONT_LABELS = {
+  normal: 'Normal',
+  light: 'Light',
+};
 
+function getWeightPreset(weight) {
+  return FONT_WEIGHT_PRESETS[weight] || FONT_WEIGHT_PRESETS.normal;
+}
 
+function applyCustomWeightFonts(pdf, customWeightFonts = {}) {
+  const activePresets = { ...FONT_WEIGHT_PRESETS };
+
+  for (const [weight, font] of Object.entries(customWeightFonts)) {
+    if (!font?.base64 || !font?.family) continue;
+    pdf.addFileToVFS(font.fileName, font.base64);
+    pdf.addFont(font.fileName, font.family, 'normal');
+    activePresets[weight] = { fontFamily: font.family, fontStyle: 'normal' };
+  }
+
+  return activePresets;
+}
 
 function loadScriptOnce(src, globalName) {
   return new Promise((resolve, reject) => {
@@ -86,12 +110,20 @@ function getBlockStyle(blockRole, styleOptions, nextBlockRole = null, previousBl
 
   const titleSpacingAfter = nextBlockRole === 'centeredBody' ? -6 : 14;
 
+  const blockFontWeight = isTitle
+    ? styleOptions.titleFontWeight
+    : isHeading
+      ? styleOptions.headingFontWeight
+      : styleOptions.bodyFontWeight;
+
+  const weightPreset = getWeightPreset(blockFontWeight);
+
   return {
     fontSize,
     lineHeight: isTitle ? fontSize * 1.3 : isHeading ? fontSize * 1.42 : isCenteredBody ? fontSize * 1.35 : fontSize * 1.58,
-    fontStyle: isTitle
-      ? styleOptions.titleFontWeight === 'normal' ? 'bold' : 'normal'
-      : isHeading ? 'normal' : 'normal',
+    fontFamily: weightPreset.fontFamily,
+    fontStyle: weightPreset.fontStyle,
+    fontWeight: blockFontWeight,
     align: isTitle || isCenteredBody ? 'center' : 'left',
     spacingBefore: isHeading ? headingSpacing : 0,
     spacingAfter: isHeading ? headingSpacing : isTitle ? titleSpacingAfter : isCenteredBody ? 8 : 10,
@@ -177,6 +209,7 @@ function createPdfDocument({
   jsPDF,
   blocks,
   styleOptions,
+  customWeightFonts,
   logoAsset,
   footerMain,
   footerSub,
@@ -187,6 +220,8 @@ function createPdfDocument({
     unit: 'pt',
     format: 'letter',
   });
+
+  const activeWeightPresets = applyCustomWeightFonts(pdf, customWeightFonts);
 
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
@@ -206,10 +241,12 @@ function createPdfDocument({
       const nextBlockRole = collection[index + 1]?.role || null;
       const previousBlockRole = collection[index - 1]?.role || null;
       const style = getBlockStyle(block.role, styleOptions, nextBlockRole, previousBlockRole);
-      pdf.setFont('helvetica', style.fontStyle);
-      pdf.setFontSize(style.fontSize);
-      const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.9 : textWidth);
-      return { ...style, lines };
+      const resolvedPreset = activeWeightPresets[style.fontWeight] || getWeightPreset(style.fontWeight);
+      const resolvedStyle = { ...style, ...resolvedPreset };
+      pdf.setFont(resolvedStyle.fontFamily, resolvedStyle.fontStyle);
+      pdf.setFontSize(resolvedStyle.fontSize);
+      const lines = formatBlockLinesForPdf(pdf, text, resolvedStyle.align === 'center' ? textWidth * 0.9 : textWidth);
+      return { ...resolvedStyle, lines };
     })
     .filter(Boolean);
 
@@ -237,7 +274,8 @@ function createPdfDocument({
       lines: [' '],
       yStart: contentTop,
       align: 'left',
-      fontStyle: 'normal',
+      ...(activeWeightPresets[styleOptions.bodyFontWeight] || getWeightPreset(styleOptions.bodyFontWeight)),
+      fontWeight: styleOptions.bodyFontWeight,
       fontSize: scaledBodySize,
       lineHeight: scaledBodySize * 1.58,
     });
@@ -259,7 +297,8 @@ function createPdfDocument({
 
     if (pageIndex === 0 && confidentialLabel) {
       const confidentialFontSize = getBlockStyle('body', styleOptions).fontSize;
-      pdf.setFont('helvetica', 'normal');
+      const lightPreset = activeWeightPresets.light || getWeightPreset('light');
+      pdf.setFont(lightPreset.fontFamily, lightPreset.fontStyle);
       pdf.setFontSize(confidentialFontSize);
       pdf.setTextColor(65, 69, 78);
       pdf.text(confidentialLabel, pageWidth - 72, 56, {
@@ -269,7 +308,7 @@ function createPdfDocument({
     }
 
     for (const block of pages[pageIndex]) {
-      pdf.setFont('helvetica', block.fontStyle);
+      pdf.setFont(block.fontFamily || 'helvetica', block.fontStyle);
       pdf.setFontSize(block.fontSize);
       pdf.setTextColor(0, 0, 0);
 
@@ -282,9 +321,11 @@ function createPdfDocument({
         }
         lineY += block.lineHeight;
       }
+
     }
 
-    pdf.setFont('helvetica', 'normal');
+    const lightPreset = activeWeightPresets.light || getWeightPreset('light');
+    pdf.setFont(lightPreset.fontFamily, lightPreset.fontStyle);
     const footerFontSize = Math.max(8, Number((10 * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2)));
     pdf.setFontSize(footerFontSize);
     pdf.setTextColor(0, 0, 0);
@@ -333,6 +374,7 @@ export default function Home() {
     ],
   });
   const [styleOptions, setStyleOptions] = useState(DEFAULT_STYLE_OPTIONS);
+  const [customWeightFonts, setCustomWeightFonts] = useState({});
 
   async function buildPreviewFromFile(file) {
     if (!file) return;
@@ -409,6 +451,7 @@ export default function Home() {
           jsPDF,
           blocks: codedDocument?.blocks || [],
           styleOptions,
+          customWeightFonts,
           logoAsset,
           footerMain,
           footerSub,
@@ -441,11 +484,34 @@ export default function Home() {
     return () => {
       mounted = false;
     };
-  }, [codedDocument, styleOptions, logoUrl, footerMain, footerSub, confidentialText]);
+  }, [codedDocument, styleOptions, customWeightFonts, logoUrl, footerMain, footerSub, confidentialText]);
 
   useEffect(() => () => {
     if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
   }, [pdfPreviewUrl]);
+
+  async function handleCustomWeightFontChange(weight, file) {
+    if (!file) {
+      setCustomWeightFonts((prev) => {
+        const next = { ...prev };
+        delete next[weight];
+        return next;
+      });
+      return;
+    }
+
+    const base64 = await fileToBase64(file);
+    const safeWeight = String(weight || 'custom').replace(/[^a-z0-9]/gi, '');
+
+    setCustomWeightFonts((prev) => ({
+      ...prev,
+      [weight]: {
+        fileName: `${safeWeight}-${Date.now()}.ttf`,
+        family: `Custom${safeWeight}${Date.now()}`,
+        base64,
+      },
+    }));
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -491,6 +557,7 @@ export default function Home() {
           jsPDF,
           blocks: extractedBlocks,
           styleOptions,
+          customWeightFonts,
           logoAsset,
           footerMain,
           footerSub,
@@ -623,8 +690,18 @@ export default function Home() {
               value={styleOptions.titleFontWeight}
               onChange={(event) => setStyleOptions((prev) => ({ ...prev, titleFontWeight: event.target.value }))}
             >
-              <option value="thin">Super thin</option>
               <option value="normal">Normal</option>
+              <option value="light">Light</option>
+            </select>
+
+            <label htmlFor="headingFontWeight">Heading weight</label>
+            <select
+              id="headingFontWeight"
+              value={styleOptions.headingFontWeight}
+              onChange={(event) => setStyleOptions((prev) => ({ ...prev, headingFontWeight: event.target.value }))}
+            >
+              <option value="normal">Normal</option>
+              <option value="light">Light</option>
             </select>
 
             <label htmlFor="bodyFontWeight">Body weight</label>
@@ -633,10 +710,25 @@ export default function Home() {
               value={styleOptions.bodyFontWeight}
               onChange={(event) => setStyleOptions((prev) => ({ ...prev, bodyFontWeight: event.target.value }))}
             >
+              <option value="normal">Normal</option>
               <option value="light">Light</option>
-              <option value="extra-light">Extra-light</option>
-              <option value="super-light">Super-light</option>
             </select>
+
+            <p className={styles.weightHint}>Upload a Normal and Light TTF below. Disclaimers/footer will use the Light font when provided.</p>
+
+            <div className={styles.customFontGrid}>
+              {Object.entries(CUSTOM_WEIGHT_FONT_LABELS).map(([weightKey, label]) => (
+                <div key={weightKey} className={styles.customFontRow}>
+                  <label htmlFor={`custom-font-${weightKey}`}>{label} TTF</label>
+                  <input
+                    id={`custom-font-${weightKey}`}
+                    type="file"
+                    accept=".ttf"
+                    onChange={(event) => handleCustomWeightFontChange(weightKey, event.target.files?.[0])}
+                  />
+                </div>
+              ))}
+            </div>
 
             <label htmlFor="fontScale">Overall text scale (%)</label>
             <input

@@ -138,3 +138,21 @@
   color: #fff;
   font-size: 0.75rem;
 }
+
+.weightHint {
+  margin: 2px 0 6px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: #5f6880;
+}
+
+.customFontGrid {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.customFontRow {
+  display: grid;
+  gap: 6px;
+}
