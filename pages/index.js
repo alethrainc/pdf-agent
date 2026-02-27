@@ -11,7 +11,7 @@ const DEFAULT_STYLE_OPTIONS = {
   headingFontSize: 17,
   bodyFontSize: 15,
   titleFontWeight: 'normal',
-  headingFontWeight: 'light',
+  headingFontWeight: 'normal',
   bodyFontWeight: 'light',
 };
 
@@ -397,6 +397,7 @@ async function fontUrlToBase64(fontUrl) {
 }
 
 export default function Home() {
+  const uploadInputRef = useRef(null);
   const [fileName, setFileName] = useState('');
   const [uploads, setUploads] = useState([]);
   const [previewDocs, setPreviewDocs] = useState([]);
@@ -658,7 +659,7 @@ export default function Home() {
     setStatus('');
 
     if (!uploads.length) {
-      setStatus('Drop or upload at least one file to convert.');
+      setStatus('Drag/drop or click the drop zone to add at least one file to convert.');
       return;
     }
 
@@ -723,12 +724,12 @@ export default function Home() {
   return (
     <main className={styles.main}>
       <section className={styles.card}>
-        <h1>Document to PDF</h1>
-        <p className={styles.subtitle}>Drag and drop your docs, review every preview, then export.</p>
+        <h1>Document to formatted Executive Letter</h1>
+        <p className={styles.subtitle}>Drag and drop your docs (or click the drop zone), review every preview, then export.</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <label htmlFor="upload" className={styles.uploadLabel}>Upload up to 10 files</label>
           <input
+            ref={uploadInputRef}
             id="upload"
             className={styles.uploadInput}
             type="file"
@@ -739,6 +740,15 @@ export default function Home() {
 
           <div
             className={`${styles.dropZone} ${dragActive ? styles.dropZoneActive : ''}`}
+            onClick={() => uploadInputRef.current?.click()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                uploadInputRef.current?.click();
+              }
+            }}
+            role="button"
+            tabIndex={0}
             onDragOver={(event) => {
               event.preventDefault();
               setDragActive(true);
@@ -746,7 +756,7 @@ export default function Home() {
             onDragLeave={() => setDragActive(false)}
             onDrop={handleDrop}
           >
-            {uploads.length ? `Ready: ${uploads.length} file${uploads.length === 1 ? '' : 's'}` : 'Drag & drop files here'}
+            {uploads.length ? `Ready: ${uploads.length} file${uploads.length === 1 ? '' : 's'}` : 'Drag & drop files here or click to browse'}
           </div>
 
           <details className={styles.settingsPanel}>
