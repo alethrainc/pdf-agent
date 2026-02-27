@@ -15,17 +15,21 @@ const DEFAULT_STYLE_OPTIONS = {
   bodyFontWeight: 'normal',
 };
 
-const FONT_WEIGHT_RENDER_OPTIONS = {
-  normal: { renderingMode: 'fill', lineWidth: 0 },
-  light: { renderingMode: 'fillThenStroke', lineWidth: 0.2 },
-  'extra-light': { renderingMode: 'stroke', lineWidth: 0.16 },
-  'super-thin': { renderingMode: 'stroke', lineWidth: 0.1 },
+const FONT_WEIGHT_PRESETS = {
+  normal: { fontStyle: 'normal', charSpace: 0 },
+  light: { fontStyle: 'normal', charSpace: 0.08 },
+  'extra-light': { fontStyle: 'normal', charSpace: 0.16 },
+  'super-thin': { fontStyle: 'normal', charSpace: 0.24 },
 };
 
-function getWeightRenderOptions(weight) {
-  return FONT_WEIGHT_RENDER_OPTIONS[weight] || FONT_WEIGHT_RENDER_OPTIONS.normal;
+function getWeightPreset(weight) {
+  return FONT_WEIGHT_PRESETS[weight] || FONT_WEIGHT_PRESETS.normal;
 }
 
+function getBlockTextColor(blockRole) {
+  if (blockRole === 'body' || blockRole === 'centeredBody') return [55, 65, 81];
+  return [31, 41, 55];
+}
 
 function loadScriptOnce(src, globalName) {
   return new Promise((resolve, reject) => {
@@ -101,15 +105,15 @@ function getBlockStyle(blockRole, styleOptions, nextBlockRole = null, previousBl
       ? styleOptions.headingFontWeight
       : styleOptions.bodyFontWeight;
 
-  const renderOptions = getWeightRenderOptions(blockFontWeight);
+  const weightPreset = getWeightPreset(blockFontWeight);
 
   return {
     fontSize,
     lineHeight: isTitle ? fontSize * 1.3 : isHeading ? fontSize * 1.42 : isCenteredBody ? fontSize * 1.35 : fontSize * 1.58,
-    fontStyle: 'normal',
+    fontStyle: weightPreset.fontStyle,
     fontWeight: blockFontWeight,
-    renderingMode: renderOptions.renderingMode,
-    lineWidth: renderOptions.lineWidth,
+    charSpace: weightPreset.charSpace,
+    textColor: getBlockTextColor(blockRole),
     align: isTitle || isCenteredBody ? 'center' : 'left',
     spacingBefore: isHeading ? headingSpacing : 0,
     spacingAfter: isHeading ? headingSpacing : isTitle ? titleSpacingAfter : isCenteredBody ? 8 : 10,
@@ -257,7 +261,8 @@ function createPdfDocument({
       align: 'left',
       fontStyle: 'normal',
       fontWeight: styleOptions.bodyFontWeight,
-      ...getWeightRenderOptions(styleOptions.bodyFontWeight),
+      ...getWeightPreset(styleOptions.bodyFontWeight),
+      textColor: getBlockTextColor('body'),
       fontSize: scaledBodySize,
       lineHeight: scaledBodySize * 1.58,
     });
@@ -291,18 +296,20 @@ function createPdfDocument({
     for (const block of pages[pageIndex]) {
       pdf.setFont('helvetica', block.fontStyle);
       pdf.setFontSize(block.fontSize);
-      pdf.setTextColor(0, 0, 0);
-      pdf.setLineWidth(block.lineWidth || 0);
+      pdf.setTextColor(...block.textColor);
+      pdf.setCharSpace(block.charSpace || 0);
 
       let lineY = block.yStart;
       for (const line of block.lines) {
         if (block.align === 'center') {
-          pdf.text(line, pageWidth / 2, lineY, { align: 'center', renderingMode: block.renderingMode });
+          pdf.text(line, pageWidth / 2, lineY, { align: 'center' });
         } else {
-          pdf.text(line, textLeft, lineY, { renderingMode: block.renderingMode });
+          pdf.text(line, textLeft, lineY);
         }
         lineY += block.lineHeight;
       }
+
+      pdf.setCharSpace(0);
     }
 
     pdf.setFont('helvetica', 'normal');
