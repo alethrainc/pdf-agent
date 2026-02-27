@@ -206,10 +206,9 @@ function applyAlethraLayoutHeuristics(blocks) {
   }
 
   return remapped.map((block, index) => {
-    if (block.role !== 'body') return block;
     const likelyFrontMatter = index <= 3;
     const isConfidentialNotice = /\bconfidential\b/i.test(block.text);
-    if (likelyFrontMatter && isConfidentialNotice) {
+    if (block.role !== 'title' && likelyFrontMatter && isConfidentialNotice) {
       return { ...block, role: 'centeredBody' };
     }
     return block;
