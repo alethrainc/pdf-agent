@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import styles from '../styles/Home.module.css';
 
 const DEFAULT_LOGO_URL = 'https://plusbrand.com/wp-content/uploads/2025/10/Copia-de-ALETHRA_Logo-scaled.png';
@@ -98,13 +98,6 @@ function getBlockStyle(blockRole, styleOptions, nextBlockRole = null, previousBl
   };
 }
 
-function getBodyPreviewWeight(weightOption) {
-  if (weightOption === 'super-light') return 100;
-  if (weightOption === 'extra-light') return 200;
-  return 300;
-}
-
-
 function getImageFormat(dataUrl) {
   if (!dataUrl || typeof dataUrl !== 'string') return 'PNG';
   if (dataUrl.startsWith('data:image/jpeg') || dataUrl.startsWith('data:image/jpg')) return 'JPEG';
@@ -180,6 +173,129 @@ function formatBlockLinesForPdf(pdf, text, maxWidth) {
   return outputLines;
 }
 
+function createPdfDocument({
+  jsPDF,
+  blocks,
+  styleOptions,
+  logoAsset,
+  footerMain,
+  footerSub,
+  confidentialText,
+}) {
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'pt',
+    format: 'letter',
+  });
+
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const stripeWidth = 22;
+  const textLeft = 64;
+  const textRight = pageWidth - 40;
+  const textWidth = textRight - textLeft;
+  const footerY = pageHeight - 42;
+  const contentTop = 112;
+  const contentBottom = pageHeight - 74;
+  const confidentialLabel = (confidentialText || DEFAULT_CONFIDENTIAL_TEXT).trim();
+
+  const preparedBlocks = (blocks || [])
+    .map((block, index, collection) => {
+      const text = block?.text?.trim();
+      if (!text) return null;
+      const nextBlockRole = collection[index + 1]?.role || null;
+      const previousBlockRole = collection[index - 1]?.role || null;
+      const style = getBlockStyle(block.role, styleOptions, nextBlockRole, previousBlockRole);
+      pdf.setFont('helvetica', style.fontStyle);
+      pdf.setFontSize(style.fontSize);
+      const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.9 : textWidth);
+      return { ...style, lines };
+    })
+    .filter(Boolean);
+
+  const pages = [];
+  let currentPage = [];
+  let y = contentTop;
+
+  for (const block of preparedBlocks) {
+    const blockHeight = block.spacingBefore + (block.lines.length * block.lineHeight) + block.spacingAfter;
+
+    if (y + blockHeight > contentBottom && currentPage.length) {
+      pages.push(currentPage);
+      currentPage = [];
+      y = contentTop;
+    }
+
+    currentPage.push({ ...block, yStart: y + block.spacingBefore });
+    y += blockHeight;
+  }
+
+  if (!currentPage.length) {
+    const scaledBodySize = getBlockStyle('body', styleOptions).fontSize;
+    currentPage.push({
+      ...getBlockStyle('body', styleOptions),
+      lines: [' '],
+      yStart: contentTop,
+      align: 'left',
+      fontStyle: 'normal',
+      fontSize: scaledBodySize,
+      lineHeight: scaledBodySize * 1.58,
+    });
+  }
+
+  pages.push(currentPage);
+
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+    if (pageIndex > 0) pdf.addPage();
+
+    pdf.setFillColor(211, 31, 45);
+    pdf.rect(0, 0, stripeWidth, pageHeight, 'F');
+
+    if (logoAsset?.dataUrl) {
+      const logoWidth = 135;
+      const logoHeight = (logoAsset.height * logoWidth) / logoAsset.width;
+      pdf.addImage(logoAsset.dataUrl, getImageFormat(logoAsset.dataUrl), 54, 40, logoWidth, logoHeight, undefined, 'FAST');
+    }
+
+    if (pageIndex === 0 && confidentialLabel) {
+      const confidentialFontSize = getBlockStyle('body', styleOptions).fontSize;
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(confidentialFontSize);
+      pdf.setTextColor(65, 69, 78);
+      pdf.text(confidentialLabel, pageWidth - 72, 56, {
+        align: 'right',
+        baseline: 'top',
+      });
+    }
+
+    for (const block of pages[pageIndex]) {
+      pdf.setFont('helvetica', block.fontStyle);
+      pdf.setFontSize(block.fontSize);
+      pdf.setTextColor(0, 0, 0);
+
+      let lineY = block.yStart;
+      for (const line of block.lines) {
+        if (block.align === 'center') {
+          pdf.text(line, pageWidth / 2, lineY, { align: 'center' });
+        } else {
+          pdf.text(line, textLeft, lineY);
+        }
+        lineY += block.lineHeight;
+      }
+    }
+
+    pdf.setFont('helvetica', 'normal');
+    const footerFontSize = Math.max(8, Number((10 * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2)));
+    pdf.setFontSize(footerFontSize);
+    pdf.setTextColor(0, 0, 0);
+    pdf.text(footerMain || DEFAULT_FOOTER_MAIN, 72, footerY);
+    pdf.text(footerSub || DEFAULT_FOOTER_SUB, 72, footerY + 17);
+    pdf.text(`Page ${pageIndex + 1} of ${pages.length}`, pageWidth - 72, footerY + 17, { align: 'right' });
+  }
+
+  return pdf;
+}
+
 
 async function fileToBase64(file) {
   const buffer = await file.arrayBuffer();
@@ -205,7 +321,10 @@ export default function Home() {
   const [confidentialText, setConfidentialText] = useState(DEFAULT_CONFIDENTIAL_TEXT);
   const [busy, setBusy] = useState(false);
   const [buildingPreview, setBuildingPreview] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
+  const [pdfPreviewBusy, setPdfPreviewBusy] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const previewBuildId = useRef(0);
   const [codedDocument, setCodedDocument] = useState({
     blocks: [
       { role: 'title', text: 'Document Title' },
@@ -273,6 +392,61 @@ export default function Home() {
     handleFileSelect(event.dataTransfer.files);
   }
 
+  useEffect(() => {
+    let mounted = true;
+    const buildId = previewBuildId.current + 1;
+    previewBuildId.current = buildId;
+
+    async function refreshPdfPreview() {
+      setPdfPreviewBusy(true);
+      try {
+        await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', 'jspdf');
+        const { jsPDF } = window.jspdf || {};
+        if (!jsPDF) throw new Error('Unable to initialize PDF preview.');
+
+        const logoAsset = await loadLogoDataUrl(logoUrl);
+        const pdf = createPdfDocument({
+          jsPDF,
+          blocks: codedDocument?.blocks || [],
+          styleOptions,
+          logoAsset,
+          footerMain,
+          footerSub,
+          confidentialText,
+        });
+
+        const previewBlobUrl = pdf.output('bloburl');
+        if (!mounted || buildId !== previewBuildId.current) {
+          URL.revokeObjectURL(previewBlobUrl);
+          return;
+        }
+
+        setPdfPreviewUrl((previous) => {
+          if (previous) URL.revokeObjectURL(previous);
+          return previewBlobUrl;
+        });
+      } catch {
+        if (mounted && buildId === previewBuildId.current) {
+          setPdfPreviewUrl('');
+        }
+      } finally {
+        if (mounted && buildId === previewBuildId.current) {
+          setPdfPreviewBusy(false);
+        }
+      }
+    }
+
+    refreshPdfPreview();
+
+    return () => {
+      mounted = false;
+    };
+  }, [codedDocument, styleOptions, logoUrl, footerMain, footerSub, confidentialText]);
+
+  useEffect(() => () => {
+    if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
+  }, [pdfPreviewUrl]);
+
   async function handleSubmit(event) {
     event.preventDefault();
     setStatus('');
@@ -313,116 +487,15 @@ export default function Home() {
         const payload = await response.json();
         const extractedBlocks = payload?.codedDocument?.blocks || codedDocument?.blocks || [];
 
-        const pdf = new jsPDF({
-          orientation: 'portrait',
-          unit: 'pt',
-          format: 'letter',
+        const pdf = createPdfDocument({
+          jsPDF,
+          blocks: extractedBlocks,
+          styleOptions,
+          logoAsset,
+          footerMain,
+          footerSub,
+          confidentialText,
         });
-
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const stripeWidth = 22;
-        const textLeft = 64;
-        const textRight = pageWidth - 40;
-        const textWidth = textRight - textLeft;
-        const footerY = pageHeight - 42;
-        const contentTop = 112;
-        const contentBottom = pageHeight - 74;
-        const confidentialLabel = (confidentialText || DEFAULT_CONFIDENTIAL_TEXT).trim();
-
-        const preparedBlocks = extractedBlocks
-          .map((block, index, collection) => {
-            const text = block?.text?.trim();
-            if (!text) return null;
-            const nextBlockRole = collection[index + 1]?.role || null;
-            const previousBlockRole = collection[index - 1]?.role || null;
-            const style = getBlockStyle(block.role, styleOptions, nextBlockRole, previousBlockRole);
-            pdf.setFont('helvetica', style.fontStyle);
-            pdf.setFontSize(style.fontSize);
-            const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.9 : textWidth);
-            return { ...style, lines };
-          })
-          .filter(Boolean);
-
-        const pages = [];
-        let currentPage = [];
-        let y = contentTop;
-
-        for (const block of preparedBlocks) {
-          const blockHeight = block.spacingBefore + (block.lines.length * block.lineHeight) + block.spacingAfter;
-
-          if (y + blockHeight > contentBottom && currentPage.length) {
-            pages.push(currentPage);
-            currentPage = [];
-            y = contentTop;
-          }
-
-          currentPage.push({ ...block, yStart: y + block.spacingBefore });
-          y += blockHeight;
-        }
-
-        if (!currentPage.length) {
-          const scaledBodySize = getBlockStyle('body', styleOptions).fontSize;
-          currentPage.push({
-            ...getBlockStyle('body', styleOptions),
-            lines: [' '],
-            yStart: contentTop,
-            align: 'left',
-            fontStyle: 'normal',
-            fontSize: scaledBodySize,
-            lineHeight: scaledBodySize * 1.58,
-          });
-        }
-
-        pages.push(currentPage);
-
-        for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
-          if (pageIndex > 0) pdf.addPage();
-
-          pdf.setFillColor(211, 31, 45);
-          pdf.rect(0, 0, stripeWidth, pageHeight, 'F');
-
-          if (logoAsset?.dataUrl) {
-            const logoWidth = 135;
-            const logoHeight = (logoAsset.height * logoWidth) / logoAsset.width;
-            pdf.addImage(logoAsset.dataUrl, getImageFormat(logoAsset.dataUrl), 54, 40, logoWidth, logoHeight, undefined, 'FAST');
-          }
-
-          if (pageIndex === 0 && confidentialLabel) {
-            const confidentialFontSize = getBlockStyle('body', styleOptions).fontSize;
-            pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(confidentialFontSize);
-            pdf.setTextColor(65, 69, 78);
-            pdf.text(confidentialLabel, pageWidth - 72, 56, {
-              align: 'right',
-              baseline: 'top',
-            });
-          }
-
-          for (const block of pages[pageIndex]) {
-            pdf.setFont('helvetica', block.fontStyle);
-            pdf.setFontSize(block.fontSize);
-            pdf.setTextColor(0, 0, 0);
-
-            let lineY = block.yStart;
-            for (const line of block.lines) {
-              if (block.align === 'center') {
-                pdf.text(line, pageWidth / 2, lineY, { align: 'center' });
-              } else {
-                pdf.text(line, textLeft, lineY);
-              }
-              lineY += block.lineHeight;
-            }
-          }
-
-          pdf.setFont('helvetica', 'normal');
-          const footerFontSize = Math.max(8, Number((10 * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2)));
-          pdf.setFontSize(footerFontSize);
-          pdf.setTextColor(0, 0, 0);
-          pdf.text(footerMain || DEFAULT_FOOTER_MAIN, 72, footerY);
-          pdf.text(footerSub || DEFAULT_FOOTER_SUB, 72, footerY + 17);
-          pdf.text(`Page ${pageIndex + 1} of ${pages.length}`, pageWidth - 72, footerY + 17, { align: 'right' });
-        }
 
         const baseName = activeUpload.name.replace(/\.[^/.]+$/, '') || 'document';
         const outputName = uploads.length === 1 && fileName
@@ -584,61 +657,12 @@ export default function Home() {
         <section className={styles.previewCard}>
           <p className={styles.previewLabel}>Live preview</p>
           <div className={styles.previewPage}>
-            {logoUrl && (
-              <>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={logoUrl} alt="Logo preview" className={styles.previewLogo} />
-              </>
+            {pdfPreviewUrl ? (
+              <iframe title="PDF live preview" src={pdfPreviewUrl} className={styles.previewFrame} />
+            ) : (
+              <p className={styles.previewUnavailable}>Unable to render PDF preview.</p>
             )}
-            <p
-              className={styles.previewConfidential}
-              style={{
-                fontSize: `${Number((styleOptions.bodyFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2))}px`,
-              }}
-            >
-              {confidentialText || DEFAULT_CONFIDENTIAL_TEXT}
-            </p>
-            {(codedDocument?.blocks || []).map((block, index, collection) => {
-              const text = block?.text?.trim();
-              if (!text) return null;
-              const isTitle = block.role === 'title';
-              const isHeading = block.role === 'heading';
-              const isCenteredBody = block.role === 'centeredBody';
-              const nextBlockRole = collection[index + 1]?.role || null;
-              const previousBlockRole = collection[index - 1]?.role || null;
-              const centeredBodyBoost = isCenteredBody && previousBlockRole === 'title' ? 2 : 0;
-              const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : (styleOptions.bodyFontSize + centeredBodyBoost);
-              const fontSize = Number((baseFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2));
-              const fontWeight = isTitle
-                ? (styleOptions.titleFontWeight === 'thin' ? 200 : 500)
-                : isHeading
-                  ? 400
-                  : getBodyPreviewWeight(styleOptions.bodyFontWeight);
-              const headingVerticalSpacing = `${Math.max(8, Number((fontSize * 0.55).toFixed(2)))}px`;
-              const titleMarginBottom = nextBlockRole === 'centeredBody' ? '-6px' : '14px';
-              return (
-                <p
-                  key={`${text}-${index}`}
-                  style={{
-                    fontSize: `${fontSize}px`,
-                    lineHeight: isTitle ? 1.3 : isHeading ? 1.4 : 1.6,
-                    fontWeight,
-                    textAlign: isTitle || isCenteredBody ? 'center' : 'left',
-                    margin: isTitle
-                      ? `10px 0 ${titleMarginBottom}`
-                      : isHeading
-                        ? `${headingVerticalSpacing} 0`
-                        : '0 0 10px',
-                  }}
-                >
-                  {text}
-                </p>
-              );
-            })}
-            <footer className={styles.previewFooter}>
-              <span>{footerMain}</span>
-              <span>{footerSub}</span>
-            </footer>
+            {pdfPreviewBusy && <p className={styles.previewUpdating}>Refreshing preview…</p>}
           </div>
         </section>
 
