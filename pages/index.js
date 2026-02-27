@@ -85,13 +85,13 @@ function getBlockStyle(blockRole, styleOptions) {
 
   return {
     fontSize,
-    lineHeight: isTitle ? fontSize * 1.32 : isHeading ? fontSize * 1.42 : fontSize * 1.58,
+    lineHeight: isTitle ? fontSize * 1.3 : isHeading ? fontSize * 1.42 : isCenteredBody ? fontSize * 1.35 : fontSize * 1.58,
     fontStyle: isTitle
       ? styleOptions.titleFontWeight === 'normal' ? 'bold' : 'normal'
       : isHeading ? 'normal' : 'normal',
     align: isTitle || isCenteredBody ? 'center' : 'left',
     spacingBefore: isHeading ? headingSpacing : 0,
-    spacingAfter: isHeading ? headingSpacing : isTitle ? 14 : isCenteredBody ? 12 : 10,
+    spacingAfter: isHeading ? headingSpacing : isTitle ? 14 : isCenteredBody ? 8 : 10,
   };
 }
 
@@ -319,8 +319,8 @@ export default function Home() {
         const pageWidth = pdf.internal.pageSize.getWidth();
         const pageHeight = pdf.internal.pageSize.getHeight();
         const stripeWidth = 22;
-        const textLeft = 72;
-        const textRight = pageWidth - 46;
+        const textLeft = 64;
+        const textRight = pageWidth - 40;
         const textWidth = textRight - textLeft;
         const footerY = pageHeight - 42;
         const contentTop = 112;
@@ -334,7 +334,7 @@ export default function Home() {
             const style = getBlockStyle(block.role, styleOptions);
             pdf.setFont('helvetica', style.fontStyle);
             pdf.setFontSize(style.fontSize);
-            const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.75 : textWidth);
+            const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.9 : textWidth);
             return { ...style, lines };
           })
           .filter(Boolean);
