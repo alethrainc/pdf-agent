@@ -69,7 +69,7 @@ async function loadLogoDataUrl(url) {
   return { dataUrl, ...size };
 }
 
-function getBlockStyle(blockRole, styleOptions) {
+function getBlockStyle(blockRole, styleOptions, nextBlockRole = null) {
   const fontScale = (Number(styleOptions.fontScale) || DEFAULT_STYLE_OPTIONS.fontScale) / 100;
   const isTitle = blockRole === 'title';
   const isHeading = blockRole === 'heading';
@@ -83,6 +83,8 @@ function getBlockStyle(blockRole, styleOptions) {
 
   const headingSpacing = Math.max(8, Number((fontSize * 0.55).toFixed(2)));
 
+  const titleSpacingAfter = nextBlockRole === 'centeredBody' ? 4 : 14;
+
   return {
     fontSize,
     lineHeight: isTitle ? fontSize * 1.3 : isHeading ? fontSize * 1.42 : isCenteredBody ? fontSize * 1.35 : fontSize * 1.58,
@@ -91,7 +93,7 @@ function getBlockStyle(blockRole, styleOptions) {
       : isHeading ? 'normal' : 'normal',
     align: isTitle || isCenteredBody ? 'center' : 'left',
     spacingBefore: isHeading ? headingSpacing : 0,
-    spacingAfter: isHeading ? headingSpacing : isTitle ? 14 : isCenteredBody ? 8 : 10,
+    spacingAfter: isHeading ? headingSpacing : isTitle ? titleSpacingAfter : isCenteredBody ? 8 : 10,
   };
 }
 
@@ -328,10 +330,11 @@ export default function Home() {
         const confidentialLabel = (confidentialText || DEFAULT_CONFIDENTIAL_TEXT).trim();
 
         const preparedBlocks = extractedBlocks
-          .map((block) => {
+          .map((block, index, collection) => {
             const text = block?.text?.trim();
             if (!text) return null;
-            const style = getBlockStyle(block.role, styleOptions);
+            const nextBlockRole = collection[index + 1]?.role || null;
+            const style = getBlockStyle(block.role, styleOptions, nextBlockRole);
             pdf.setFont('helvetica', style.fontStyle);
             pdf.setFontSize(style.fontSize);
             const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.9 : textWidth);
@@ -593,12 +596,13 @@ export default function Home() {
             >
               {confidentialText || DEFAULT_CONFIDENTIAL_TEXT}
             </p>
-            {(codedDocument?.blocks || []).map((block, index) => {
+            {(codedDocument?.blocks || []).map((block, index, collection) => {
               const text = block?.text?.trim();
               if (!text) return null;
               const isTitle = block.role === 'title';
               const isHeading = block.role === 'heading';
               const isCenteredBody = block.role === 'centeredBody';
+              const nextBlockRole = collection[index + 1]?.role || null;
               const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
               const fontSize = Number((baseFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2));
               const fontWeight = isTitle
@@ -607,6 +611,7 @@ export default function Home() {
                   ? 400
                   : getBodyPreviewWeight(styleOptions.bodyFontWeight);
               const headingVerticalSpacing = `${Math.max(8, Number((fontSize * 0.55).toFixed(2)))}px`;
+              const titleMarginBottom = nextBlockRole === 'centeredBody' ? '4px' : '14px';
               return (
                 <p
                   key={`${text}-${index}`}
@@ -616,7 +621,7 @@ export default function Home() {
                     fontWeight,
                     textAlign: isTitle || isCenteredBody ? 'center' : 'left',
                     margin: isTitle
-                      ? '10px 0 14px'
+                      ? `10px 0 ${titleMarginBottom}`
                       : isHeading
                         ? `${headingVerticalSpacing} 0`
                         : '0 0 10px',
