@@ -11,8 +11,15 @@ const DEFAULT_STYLE_OPTIONS = {
   headingFontSize: 17,
   bodyFontSize: 11,
   titleFontWeight: 'thin',
-  bodyFontWeight: 'light',
+  headingFontWeight: 'thin',
+  bodyFontWeight: 'thin',
 };
+
+function resolveFontStyle(weight, fallback = 'normal') {
+  if (weight === 'normal') return 'bold';
+  if (weight === 'thin') return 'normal';
+  return fallback;
+}
 
 
 
@@ -90,8 +97,10 @@ function getBlockStyle(blockRole, styleOptions, nextBlockRole = null, previousBl
     fontSize,
     lineHeight: isTitle ? fontSize * 1.3 : isHeading ? fontSize * 1.42 : isCenteredBody ? fontSize * 1.35 : fontSize * 1.58,
     fontStyle: isTitle
-      ? styleOptions.titleFontWeight === 'normal' ? 'bold' : 'normal'
-      : isHeading ? 'normal' : 'normal',
+      ? resolveFontStyle(styleOptions.titleFontWeight)
+      : isHeading
+        ? resolveFontStyle(styleOptions.headingFontWeight)
+        : resolveFontStyle(styleOptions.bodyFontWeight),
     align: isTitle || isCenteredBody ? 'center' : 'left',
     spacingBefore: isHeading ? headingSpacing : 0,
     spacingAfter: isHeading ? headingSpacing : isTitle ? titleSpacingAfter : isCenteredBody ? 8 : 10,
@@ -627,15 +636,24 @@ export default function Home() {
               <option value="normal">Normal</option>
             </select>
 
+            <label htmlFor="headingFontWeight">Heading weight</label>
+            <select
+              id="headingFontWeight"
+              value={styleOptions.headingFontWeight}
+              onChange={(event) => setStyleOptions((prev) => ({ ...prev, headingFontWeight: event.target.value }))}
+            >
+              <option value="thin">Super thin</option>
+              <option value="normal">Normal</option>
+            </select>
+
             <label htmlFor="bodyFontWeight">Body weight</label>
             <select
               id="bodyFontWeight"
               value={styleOptions.bodyFontWeight}
               onChange={(event) => setStyleOptions((prev) => ({ ...prev, bodyFontWeight: event.target.value }))}
             >
-              <option value="light">Light</option>
-              <option value="extra-light">Extra-light</option>
-              <option value="super-light">Super-light</option>
+              <option value="thin">Super thin</option>
+              <option value="normal">Normal</option>
             </select>
 
             <label htmlFor="fontScale">Overall text scale (%)</label>
