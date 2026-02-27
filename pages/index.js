@@ -397,6 +397,8 @@ async function fontUrlToBase64(fontUrl) {
 }
 
 export default function Home() {
+  const dropZoneRef = useRef(null);
+  const dragDepthRef = useRef(0);
   const [fileName, setFileName] = useState('');
   const [uploads, setUploads] = useState([]);
   const [status, setStatus] = useState('');
@@ -474,11 +476,40 @@ export default function Home() {
     );
   }
 
+  function getDroppedFiles(dataTransfer) {
+    if (!dataTransfer) return [];
+    if (dataTransfer.items?.length) {
+      return Array.from(dataTransfer.items)
+        .filter((item) => item.kind === 'file')
+        .map((item) => item.getAsFile())
+        .filter(Boolean);
+    }
+
+    return Array.from(dataTransfer.files || []);
+  }
+
   function handleDrop(event) {
     event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
     setDragActive(false);
-    handleFileSelect(event.dataTransfer.files);
+    const droppedFiles = getDroppedFiles(event.dataTransfer);
+    handleFileSelect(droppedFiles);
   }
+
+  useEffect(() => {
+    function preventBrowserFileOpen(event) {
+      event.preventDefault();
+    }
+
+    window.addEventListener('dragover', preventBrowserFileOpen);
+    window.addEventListener('drop', preventBrowserFileOpen);
+
+    return () => {
+      window.removeEventListener('dragover', preventBrowserFileOpen);
+      window.removeEventListener('drop', preventBrowserFileOpen);
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -691,12 +722,27 @@ export default function Home() {
           />
 
           <div
+            ref={dropZoneRef}
             className={`${styles.dropZone} ${dragActive ? styles.dropZoneActive : ''}`}
-            onDragOver={(event) => {
+            onDragEnter={(event) => {
               event.preventDefault();
+              event.stopPropagation();
+              dragDepthRef.current += 1;
               setDragActive(true);
             }}
-            onDragLeave={() => setDragActive(false)}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setDragActive(true);
+            }}
+            onDragLeave={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+              if (dragDepthRef.current === 0) {
+                setDragActive(false);
+              }
+            }}
             onDrop={handleDrop}
           >
             {uploads.length ? `Ready to convert ${uploads.length} file${uploads.length === 1 ? '' : 's'}` : 'Drag & drop up to 10 files here'}
