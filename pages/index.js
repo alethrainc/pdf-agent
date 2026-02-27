@@ -10,7 +10,7 @@ const DEFAULT_STYLE_OPTIONS = {
   titleFontSize: 30,
   headingFontSize: 17,
   bodyFontSize: 11,
-  titleFontWeight: 'super-thin',
+  titleFontWeight: 'light',
   headingFontWeight: 'normal',
   bodyFontWeight: 'normal',
 };
@@ -18,15 +18,11 @@ const DEFAULT_STYLE_OPTIONS = {
 const FONT_WEIGHT_PRESETS = {
   normal: { fontFamily: 'helvetica', fontStyle: 'normal' },
   light: { fontFamily: 'times', fontStyle: 'normal' },
-  'extra-light': { fontFamily: 'courier', fontStyle: 'normal' },
-  'super-thin': { fontFamily: 'times', fontStyle: 'italic' },
 };
 
 const CUSTOM_WEIGHT_FONT_LABELS = {
-  normal: 'Normal (400)',
-  light: 'Light (300-350)',
-  'extra-light': 'Extra-light (200-300)',
-  'super-thin': 'Super-thin (100-200)',
+  normal: 'Normal',
+  light: 'Light',
 };
 
 function getWeightPreset(weight) {
@@ -301,7 +297,8 @@ function createPdfDocument({
 
     if (pageIndex === 0 && confidentialLabel) {
       const confidentialFontSize = getBlockStyle('body', styleOptions).fontSize;
-      pdf.setFont('helvetica', 'normal');
+      const lightPreset = activeWeightPresets.light || getWeightPreset('light');
+      pdf.setFont(lightPreset.fontFamily, lightPreset.fontStyle);
       pdf.setFontSize(confidentialFontSize);
       pdf.setTextColor(65, 69, 78);
       pdf.text(confidentialLabel, pageWidth - 72, 56, {
@@ -327,7 +324,8 @@ function createPdfDocument({
 
     }
 
-    pdf.setFont('helvetica', 'normal');
+    const lightPreset = activeWeightPresets.light || getWeightPreset('light');
+    pdf.setFont(lightPreset.fontFamily, lightPreset.fontStyle);
     const footerFontSize = Math.max(8, Number((10 * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2)));
     pdf.setFontSize(footerFontSize);
     pdf.setTextColor(0, 0, 0);
@@ -694,8 +692,6 @@ export default function Home() {
             >
               <option value="normal">Normal</option>
               <option value="light">Light</option>
-              <option value="extra-light">Extra-light</option>
-              <option value="super-thin">Super-thin</option>
             </select>
 
             <label htmlFor="headingFontWeight">Heading weight</label>
@@ -706,8 +702,6 @@ export default function Home() {
             >
               <option value="normal">Normal</option>
               <option value="light">Light</option>
-              <option value="extra-light">Extra-light</option>
-              <option value="super-thin">Super-thin</option>
             </select>
 
             <label htmlFor="bodyFontWeight">Body weight</label>
@@ -718,11 +712,9 @@ export default function Home() {
             >
               <option value="normal">Normal</option>
               <option value="light">Light</option>
-              <option value="extra-light">Extra-light</option>
-              <option value="super-thin">Super-thin</option>
             </select>
 
-            <p className={styles.weightHint}>Want real 100/200/300 weight output? Upload your own TTF for each weight below. Those files are embedded into the generated PDF.</p>
+            <p className={styles.weightHint}>Upload a Normal and Light TTF below. Disclaimers/footer will use the Light font when provided.</p>
 
             <div className={styles.customFontGrid}>
               {Object.entries(CUSTOM_WEIGHT_FONT_LABELS).map(([weightKey, label]) => (
