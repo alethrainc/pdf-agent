@@ -83,7 +83,7 @@ function getBlockStyle(blockRole, styleOptions, nextBlockRole = null) {
 
   const headingSpacing = Math.max(8, Number((fontSize * 0.55).toFixed(2)));
 
-  const titleSpacingAfter = nextBlockRole === 'centeredBody' ? 4 : 14;
+  const titleSpacingAfter = nextBlockRole === 'centeredBody' ? 0 : 14;
 
   return {
     fontSize,
@@ -611,7 +611,7 @@ export default function Home() {
                   ? 400
                   : getBodyPreviewWeight(styleOptions.bodyFontWeight);
               const headingVerticalSpacing = `${Math.max(8, Number((fontSize * 0.55).toFixed(2)))}px`;
-              const titleMarginBottom = nextBlockRole === 'centeredBody' ? '4px' : '14px';
+              const titleMarginBottom = nextBlockRole === 'centeredBody' ? '0px' : '14px';
               return (
                 <p
                   key={`${text}-${index}`}
