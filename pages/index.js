@@ -687,7 +687,6 @@ export default function Home() {
             accept=".docx,.txt,.rtf,.html,.htm"
             onChange={(event) => handleFileSelect(event.target.files)}
             multiple
-            required
           />
 
           <div
