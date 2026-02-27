@@ -101,6 +101,30 @@ function getBodyPreviewWeight(weightOption) {
   return 300;
 }
 
+function insertConfidentialAfterTitle(blocks, confidentialLabel, styleOptions, pdf) {
+  if (!confidentialLabel) return blocks;
+
+  const confidentialStyle = getBlockStyle('centeredBody', styleOptions);
+  const confidentialLines = pdf
+    ? formatBlockLinesForPdf(pdf, confidentialLabel, pdf.internal.pageSize.getWidth() ? (pdf.internal.pageSize.getWidth() - 104) * 0.9 : 400)
+    : String(confidentialLabel).split(/\r?\n/);
+  const confidentialBlock = {
+    ...confidentialStyle,
+    lines: confidentialLines,
+    previewRole: 'centeredBody',
+    previewText: confidentialLabel,
+  };
+
+  const firstTitleIndex = blocks.findIndex((block) => block.previewRole === 'title' || block.role === 'title');
+  if (firstTitleIndex === -1) return [confidentialBlock, ...blocks];
+
+  return [
+    ...blocks.slice(0, firstTitleIndex + 1),
+    confidentialBlock,
+    ...blocks.slice(firstTitleIndex + 1),
+  ];
+}
+
 
 function getImageFormat(dataUrl) {
   if (!dataUrl || typeof dataUrl !== 'string') return 'PNG';
@@ -327,7 +351,7 @@ export default function Home() {
         const contentBottom = pageHeight - 74;
         const confidentialLabel = (confidentialText || DEFAULT_CONFIDENTIAL_TEXT).trim();
 
-        const preparedBlocks = extractedBlocks
+        let preparedBlocks = extractedBlocks
           .map((block) => {
             const text = block?.text?.trim();
             if (!text) return null;
@@ -335,9 +359,11 @@ export default function Home() {
             pdf.setFont('helvetica', style.fontStyle);
             pdf.setFontSize(style.fontSize);
             const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.9 : textWidth);
-            return { ...style, lines };
+            return { ...style, lines, previewRole: block.role };
           })
           .filter(Boolean);
+
+        preparedBlocks = insertConfidentialAfterTitle(preparedBlocks, confidentialLabel, styleOptions, pdf);
 
         const pages = [];
         let currentPage = [];
@@ -383,21 +409,14 @@ export default function Home() {
             pdf.addImage(logoAsset.dataUrl, getImageFormat(logoAsset.dataUrl), 54, 40, logoWidth, logoHeight, undefined, 'FAST');
           }
 
-          if (pageIndex === 0 && confidentialLabel) {
-            const confidentialFontSize = getBlockStyle('body', styleOptions).fontSize;
-            pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(confidentialFontSize);
-            pdf.setTextColor(65, 69, 78);
-            pdf.text(confidentialLabel, pageWidth - 72, 56, {
-              align: 'right',
-              baseline: 'top',
-            });
-          }
-
           for (const block of pages[pageIndex]) {
             pdf.setFont('helvetica', block.fontStyle);
             pdf.setFontSize(block.fontSize);
-            pdf.setTextColor(0, 0, 0);
+            if (block.previewText) {
+              pdf.setTextColor(65, 69, 78);
+            } else {
+              pdf.setTextColor(0, 0, 0);
+            }
 
             let lineY = block.yStart;
             for (const line of block.lines) {
@@ -500,7 +519,7 @@ export default function Home() {
             onChange={(event) => setFooterSub(event.target.value)}
           />
 
-          <label htmlFor="confidentialText">First-page top-right confidential text</label>
+          <label htmlFor="confidentialText">Centered confidentiality text (below title)</label>
           <textarea
             id="confidentialText"
             value={confidentialText}
@@ -585,20 +604,15 @@ export default function Home() {
                 <img src={logoUrl} alt="Logo preview" className={styles.previewLogo} />
               </>
             )}
-            <p
-              className={styles.previewConfidential}
-              style={{
-                fontSize: `${Number((styleOptions.bodyFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2))}px`,
-              }}
-            >
-              {confidentialText || DEFAULT_CONFIDENTIAL_TEXT}
-            </p>
-            {(codedDocument?.blocks || []).map((block, index) => {
+            {insertConfidentialAfterTitle((codedDocument?.blocks || []).map((block) => ({ ...block })), (confidentialText || DEFAULT_CONFIDENTIAL_TEXT).trim(), styleOptions).map((block, index) => {
               const text = block?.text?.trim();
-              if (!text) return null;
-              const isTitle = block.role === 'title';
-              const isHeading = block.role === 'heading';
-              const isCenteredBody = block.role === 'centeredBody';
+              const previewText = block?.previewText?.trim();
+              const content = text || previewText;
+              const role = block.previewRole || block.role;
+              if (!content) return null;
+              const isTitle = role === 'title';
+              const isHeading = role === 'heading';
+              const isCenteredBody = role === 'centeredBody';
               const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
               const fontSize = Number((baseFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2));
               const fontWeight = isTitle
@@ -609,7 +623,7 @@ export default function Home() {
               const headingVerticalSpacing = `${Math.max(8, Number((fontSize * 0.55).toFixed(2)))}px`;
               return (
                 <p
-                  key={`${text}-${index}`}
+                  key={`${content}-${index}`}
                   style={{
                     fontSize: `${fontSize}px`,
                     lineHeight: isTitle ? 1.3 : isHeading ? 1.4 : 1.6,
@@ -622,7 +636,7 @@ export default function Home() {
                         : '0 0 10px',
                   }}
                 >
-                  {text}
+                  {content}
                 </p>
               );
             })}
