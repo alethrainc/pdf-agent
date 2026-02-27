@@ -399,6 +399,8 @@ async function fontUrlToBase64(fontUrl) {
 export default function Home() {
   const [fileName, setFileName] = useState('');
   const [uploads, setUploads] = useState([]);
+  const [previewDocs, setPreviewDocs] = useState([]);
+  const [previewUrls, setPreviewUrls] = useState({});
   const [status, setStatus] = useState('');
   const [logoUrl, setLogoUrl] = useState(DEFAULT_LOGO_URL);
   const [footerMain, setFooterMain] = useState(DEFAULT_FOOTER_MAIN);
@@ -406,10 +408,7 @@ export default function Home() {
   const [confidentialText, setConfidentialText] = useState(DEFAULT_CONFIDENTIAL_TEXT);
   const [busy, setBusy] = useState(false);
   const [buildingPreview, setBuildingPreview] = useState(false);
-  const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
-  const [pdfPreviewBusy, setPdfPreviewBusy] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const previewBuildId = useRef(0);
   const [codedDocument, setCodedDocument] = useState({
     blocks: [
       { role: 'title', text: 'Document Title' },
@@ -423,54 +422,83 @@ export default function Home() {
   const [selectedWeightFonts, setSelectedWeightFonts] = useState({});
   const selectedWeightFontsRef = useRef(selectedWeightFonts);
 
-  async function buildPreviewFromFile(file) {
-    if (!file) return;
+  async function buildPreviewsFromFiles(uploadItems) {
+    if (!uploadItems.length) {
+      setPreviewDocs([]);
+      return;
+    }
 
     try {
       setBuildingPreview(true);
-      const base64 = await fileToBase64(file);
-      const uploadedFile = {
-        name: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        data: base64,
-      };
 
-      const response = await fetch('/api/extract-document', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uploadedFile, previewOnly: true }),
-      });
+      const docs = await Promise.all(uploadItems.map(async ({ id, file }) => {
+        try {
+          const base64 = await fileToBase64(file);
+          const uploadedFile = {
+            name: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            data: base64,
+          };
 
-      const payload = await readJsonResponse(response);
+          const response = await fetch('/api/extract-document', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uploadedFile, previewOnly: true }),
+          });
 
-      if (!response.ok) {
-        throw new Error(payload.error || 'Unable to build live preview.');
+          const payload = await readJsonResponse(response);
+
+          if (!response.ok) {
+            throw new Error(payload.error || `Unable to build preview for ${file.name}.`);
+          }
+
+          return {
+            id,
+            name: file.name,
+            blocks: payload?.codedDocument?.blocks || [],
+            error: '',
+          };
+        } catch (error) {
+          return {
+            id,
+            name: file.name,
+            blocks: [],
+            error: error.message || `Unable to build preview for ${file.name}.`,
+          };
+        }
+      }));
+
+      setPreviewDocs(docs);
+
+      const firstPreview = docs.find((doc) => doc.blocks.length);
+      if (firstPreview) {
+        setCodedDocument({ blocks: firstPreview.blocks });
+        setStatus('Previews are ready. Review each document below, then generate your PDFs.');
+      } else {
+        setStatus('No previews were generated. Please check file format/content and try again.');
       }
-      if (payload?.codedDocument?.blocks?.length) {
-        setCodedDocument(payload.codedDocument);
-        setStatus('Preview ready. If this looks good, click Generate PDF to export this exact coded layout.');
-      }
-    } catch (error) {
-      setStatus(error.message);
     } finally {
       setBuildingPreview(false);
     }
   }
 
   function handleFileSelect(fileList) {
-    const selectedFiles = Array.from(fileList || []).slice(0, 10);
+    const selectedFiles = Array.from(fileList || []).slice(0, 10).map((file, index) => ({
+      id: `${file.name}-${file.lastModified}-${index}`,
+      file,
+    }));
     if (!selectedFiles.length) return;
 
     setUploads(selectedFiles);
-    buildPreviewFromFile(selectedFiles[0]);
+    buildPreviewsFromFiles(selectedFiles);
     if (!fileName && selectedFiles.length === 1) {
-      const baseName = selectedFiles[0].name.replace(/\.[^/.]+$/, '');
+      const baseName = selectedFiles[0].file.name.replace(/\.[^/.]+$/, '');
       setFileName(baseName);
     }
     setStatus(
       selectedFiles.length > 1
-        ? `Selected ${selectedFiles.length} files. Batch conversion will generate one PDF per file.`
-        : `Selected file: ${selectedFiles[0].name}`,
+        ? `Selected ${selectedFiles.length} files. Building preview for each upload now.`
+        : `Selected file: ${selectedFiles[0].file.name}`,
     );
   }
 
@@ -482,59 +510,78 @@ export default function Home() {
 
   useEffect(() => {
     let mounted = true;
-    const buildId = previewBuildId.current + 1;
-    previewBuildId.current = buildId;
 
-    async function refreshPdfPreview() {
-      setPdfPreviewBusy(true);
+    async function refreshPdfPreviews() {
+      if (!previewDocs.length) {
+        setPreviewUrls((previous) => {
+          Object.values(previous).forEach((url) => {
+            if (url) URL.revokeObjectURL(url);
+          });
+          return {};
+        });
+        return;
+      }
+
       try {
         await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', 'jspdf');
         const { jsPDF } = window.jspdf || {};
         if (!jsPDF) throw new Error('Unable to initialize PDF preview.');
 
         const logoAsset = await loadLogoDataUrl(logoUrl);
-        const pdf = createPdfDocument({
-          jsPDF,
-          blocks: codedDocument?.blocks || [],
-          styleOptions,
-          customWeightFonts,
-          logoAsset,
-          footerMain,
-          footerSub,
-          confidentialText,
-        });
+        const nextPreviewUrls = {};
 
-        const previewBlobUrl = pdf.output('bloburl');
-        if (!mounted || buildId !== previewBuildId.current) {
-          URL.revokeObjectURL(previewBlobUrl);
+        for (const doc of previewDocs) {
+          if (!doc.blocks?.length || doc.error) continue;
+
+          const pdf = createPdfDocument({
+            jsPDF,
+            blocks: doc.blocks,
+            styleOptions,
+            customWeightFonts,
+            logoAsset,
+            footerMain,
+            footerSub,
+            confidentialText,
+          });
+
+          nextPreviewUrls[doc.id] = pdf.output('bloburl');
+        }
+
+        if (!mounted) {
+          Object.values(nextPreviewUrls).forEach((url) => URL.revokeObjectURL(url));
           return;
         }
 
-        setPdfPreviewUrl((previous) => {
-          if (previous) URL.revokeObjectURL(previous);
-          return previewBlobUrl;
+        setPreviewUrls((previous) => {
+          Object.values(previous).forEach((url) => {
+            if (url) URL.revokeObjectURL(url);
+          });
+          return nextPreviewUrls;
         });
       } catch {
-        if (mounted && buildId === previewBuildId.current) {
-          setPdfPreviewUrl('');
-        }
-      } finally {
-        if (mounted && buildId === previewBuildId.current) {
-          setPdfPreviewBusy(false);
+        if (mounted) {
+          setPreviewUrls((previous) => {
+            Object.values(previous).forEach((url) => {
+              if (url) URL.revokeObjectURL(url);
+            });
+            return {};
+          });
         }
       }
     }
 
-    refreshPdfPreview();
+    refreshPdfPreviews();
 
     return () => {
       mounted = false;
     };
-  }, [codedDocument, styleOptions, customWeightFonts, logoUrl, footerMain, footerSub, confidentialText]);
+  }, [previewDocs, styleOptions, customWeightFonts, logoUrl, footerMain, footerSub, confidentialText]);
 
   useEffect(() => () => {
-    if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
-  }, [pdfPreviewUrl]);
+    Object.values(previewUrls).forEach((url) => {
+      if (url) URL.revokeObjectURL(url);
+    });
+  }, [previewUrls]);
 
   useEffect(() => {
     selectedWeightFontsRef.current = selectedWeightFonts;
@@ -631,9 +678,9 @@ export default function Home() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             uploadedFile: {
-              name: activeUpload.name,
-              mimeType: activeUpload.type || 'application/octet-stream',
-              data: await fileToBase64(activeUpload),
+              name: activeUpload.file.name,
+              mimeType: activeUpload.file.type || 'application/octet-stream',
+              data: await fileToBase64(activeUpload.file),
             },
           }),
         });
@@ -641,7 +688,7 @@ export default function Home() {
         const payload = await readJsonResponse(response);
 
         if (!response.ok) {
-          throw new Error(payload.error || `Unable to extract content from ${activeUpload.name}.`);
+          throw new Error(payload.error || `Unable to extract content from ${activeUpload.file.name}.`);
         }
         const extractedBlocks = payload?.codedDocument?.blocks || codedDocument?.blocks || [];
 
@@ -656,7 +703,7 @@ export default function Home() {
           confidentialText,
         });
 
-        const baseName = activeUpload.name.replace(/\.[^/.]+$/, '') || 'document';
+        const baseName = activeUpload.file.name.replace(/\.[^/.]+$/, '') || 'document';
         const outputName = uploads.length === 1 && fileName
           ? `${fileName}.pdf`
           : `${baseName}.pdf`;
@@ -676,13 +723,14 @@ export default function Home() {
   return (
     <main className={styles.main}>
       <section className={styles.card}>
-        <h1>Upload File → PDF</h1>
-        <p>Upload up to 10 files and convert each to PDF in one batch. Supported preview input: DOCX, TXT, RTF, HTML. PDF export is text-based (copy/paste friendly) with branded page styling.</p>
+        <h1>Document to PDF</h1>
+        <p className={styles.subtitle}>Drag and drop your docs, review every preview, then export.</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <label htmlFor="upload">Upload up to 10 files (or drop below)</label>
+          <label htmlFor="upload" className={styles.uploadLabel}>Upload up to 10 files</label>
           <input
             id="upload"
+            className={styles.uploadInput}
             type="file"
             accept=".docx,.txt,.rtf,.html,.htm"
             onChange={(event) => handleFileSelect(event.target.files)}
@@ -698,8 +746,11 @@ export default function Home() {
             onDragLeave={() => setDragActive(false)}
             onDrop={handleDrop}
           >
-            {uploads.length ? `Ready to convert ${uploads.length} file${uploads.length === 1 ? '' : 's'}` : 'Drag & drop up to 10 files here'}
+            {uploads.length ? `Ready: ${uploads.length} file${uploads.length === 1 ? '' : 's'}` : 'Drag & drop files here'}
           </div>
+
+          <details className={styles.settingsPanel}>
+            <summary>Settings (optional)</summary>
 
           <label htmlFor="fileName">Optional output file name (single file only)</label>
           <input
@@ -709,7 +760,6 @@ export default function Home() {
             onChange={(event) => setFileName(event.target.value)}
             placeholder="document"
           />
-
 
           <label htmlFor="logoUrl">Logo URL (used on each page)</label>
           <input
@@ -836,20 +886,28 @@ export default function Home() {
             />
           </div>
 
+          </details>
+
           <button type="submit" disabled={busy || buildingPreview}>
-            {buildingPreview ? 'Building coded preview...' : busy ? 'Generating...' : 'Generate PDF'}
+            {buildingPreview ? 'Building previews...' : busy ? 'Generating...' : 'Generate PDF'}
           </button>
         </form>
 
         <section className={styles.previewCard}>
-          <p className={styles.previewLabel}>Live preview</p>
-          <div className={styles.previewPage}>
-            {pdfPreviewUrl ? (
-              <iframe title="PDF live preview" src={pdfPreviewUrl} className={styles.previewFrame} />
-            ) : (
-              <p className={styles.previewUnavailable}>Unable to render PDF preview.</p>
-            )}
-            {pdfPreviewBusy && <p className={styles.previewUpdating}>Refreshing preview…</p>}
+          <p className={styles.previewLabel}>Previews</p>
+          <div className={styles.previewGrid}>
+            {previewDocs.map((doc) => (
+              <article key={doc.id} className={styles.previewPage}>
+                <p className={styles.previewTitle}>{doc.name}</p>
+                {doc.error ? (
+                  <p className={styles.previewUnavailable}>{doc.error}</p>
+                ) : previewUrls[doc.id] ? (
+                  <iframe title={`Preview ${doc.name}`} src={previewUrls[doc.id]} className={styles.previewFrame} />
+                ) : (
+                  <p className={styles.previewUnavailable}>Generating preview…</p>
+                )}
+              </article>
+            ))}
           </div>
         </section>
 

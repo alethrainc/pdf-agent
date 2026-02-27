@@ -2,55 +2,91 @@
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: linear-gradient(180deg, #f5f7fb, #eceff7);
+  background: #f4f6fb;
   padding: 24px;
   font-family: Inter, Arial, sans-serif;
 }
 
 .card {
   width: 100%;
-  max-width: 720px;
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 8px 30px rgba(8, 15, 52, 0.08);
-  padding: 24px;
+  max-width: 980px;
+  background: #fff;
+  border: 1px solid #e6eaf3;
+  border-radius: 18px;
+  box-shadow: 0 12px 34px rgba(7, 17, 43, 0.08);
+  padding: 28px;
+}
+
+.subtitle {
+  margin-top: 8px;
+  color: #5f6880;
 }
 
 .form {
   display: grid;
-  gap: 10px;
-  margin: 20px 0;
+  gap: 12px;
+  margin: 20px 0 24px;
 }
 
-.form input {
+.uploadLabel {
+  font-weight: 600;
+  color: #2c3551;
+}
+
+.uploadInput {
+  max-width: 280px;
+}
+
+.form input,
+.form textarea,
+.form select {
   border: 1px solid #d4d8e5;
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 0.95rem;
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-size: 0.94rem;
+  background: #fff;
 }
 
 .form textarea {
-  border: 1px solid #d4d8e5;
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 0.95rem;
   font-family: inherit;
   resize: vertical;
 }
 
 .dropZone {
-  border: 2px dashed #b8c3e6;
+  border: 2px dashed #bac6e9;
   background: #f8faff;
   color: #33406f;
-  border-radius: 10px;
-  padding: 18px;
+  border-radius: 12px;
+  padding: 34px 20px;
   text-align: center;
+  font-size: 1rem;
+  font-weight: 600;
   transition: all 0.2s ease;
 }
 
 .dropZoneActive {
   border-color: #3055ee;
   background: #eef3ff;
+}
+
+.settingsPanel {
+  margin-top: 4px;
+  padding: 12px;
+  border: 1px solid #e2e7f2;
+  border-radius: 12px;
+  background: #fafbff;
+}
+
+.settingsPanel summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #2f3a58;
+  margin-bottom: 10px;
+}
+
+.styleGrid {
+  display: grid;
+  gap: 8px;
 }
 
 .form button {
@@ -68,75 +104,53 @@
   cursor: not-allowed;
 }
 
-.status {
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #eef4ff;
-}
-
-.card details {
-  margin-top: 18px;
-}
-
-
-.form select {
-  border: 1px solid #d4d8e5;
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 0.95rem;
-  background: #fff;
-}
-
-.styleGrid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-  margin-top: 4px;
-}
-
 .previewCard {
   border-top: 1px solid #e8ebf3;
-  padding-top: 16px;
+  padding-top: 18px;
 }
 
 .previewLabel {
+  margin: 0 0 10px;
   color: #556080;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
+.previewGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
 .previewPage {
-  margin-top: 8px;
   border: 1px solid #dbe2f1;
   border-radius: 12px;
   background: #fff;
-  min-height: 460px;
-  position: relative;
   overflow: hidden;
+  min-height: 380px;
+}
+
+.previewTitle {
+  margin: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid #edf1f8;
+  background: #fafcff;
+  color: #364266;
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 
 .previewFrame {
   width: 100%;
-  min-height: 460px;
+  min-height: 334px;
   border: 0;
 }
 
 .previewUnavailable {
   margin: 0;
-  padding: 20px;
+  padding: 16px;
   color: #6f7687;
-}
-
-.previewUpdating {
-  position: absolute;
-  right: 10px;
-  bottom: 8px;
-  margin: 0;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(11, 18, 38, 0.72);
-  color: #fff;
-  font-size: 0.75rem;
+  font-size: 0.9rem;
 }
 
 .weightHint {
@@ -155,4 +169,11 @@
 .customFontRow {
   display: grid;
   gap: 6px;
+}
+
+.status {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #eef4ff;
 }
