@@ -335,9 +335,18 @@ export default function Home() {
             pdf.setFont('helvetica', style.fontStyle);
             pdf.setFontSize(style.fontSize);
             const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.9 : textWidth);
-            return { ...style, lines };
+            return { ...style, lines, role: block.role };
           })
           .filter(Boolean);
+
+        for (let blockIndex = 1; blockIndex < preparedBlocks.length; blockIndex += 1) {
+          const previousBlock = preparedBlocks[blockIndex - 1];
+          const currentBlock = preparedBlocks[blockIndex];
+          if (previousBlock.role === 'title' && currentBlock.role === 'centeredBody') {
+            previousBlock.spacingAfter = 4;
+            currentBlock.spacingBefore = 0;
+          }
+        }
 
         const pages = [];
         let currentPage = [];
@@ -599,6 +608,8 @@ export default function Home() {
               const isTitle = block.role === 'title';
               const isHeading = block.role === 'heading';
               const isCenteredBody = block.role === 'centeredBody';
+              const nextBlock = codedDocument?.blocks?.[index + 1];
+              const tightTitleSpacing = isTitle && nextBlock?.role === 'centeredBody';
               const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
               const fontSize = Number((baseFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2));
               const fontWeight = isTitle
@@ -616,7 +627,7 @@ export default function Home() {
                     fontWeight,
                     textAlign: isTitle || isCenteredBody ? 'center' : 'left',
                     margin: isTitle
-                      ? '10px 0 14px'
+                      ? tightTitleSpacing ? '10px 0 4px' : '10px 0 14px'
                       : isHeading
                         ? `${headingVerticalSpacing} 0`
                         : '0 0 10px',
