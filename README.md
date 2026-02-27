@@ -58,3 +58,10 @@ The upload form now allows overriding per-document page decoration values:
 - `footerSub`
 
 If omitted, server defaults are used.
+
+## Custom fonts from folder
+
+Place `.ttf` or `.otf` files in `public/fonts/`.
+
+In the UI, each weight selector (Normal/Light) loads options from that folder via `GET /api/fonts`, so you can choose uploaded fonts without re-uploading on every run.
+
