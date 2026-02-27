@@ -90,8 +90,8 @@ function getBlockStyle(blockRole, styleOptions) {
       ? styleOptions.titleFontWeight === 'normal' ? 'bold' : 'normal'
       : isHeading ? 'normal' : 'normal',
     align: isTitle || isCenteredBody ? 'center' : 'left',
-    spacingBefore: isHeading ? headingSpacing : 0,
-    spacingAfter: isHeading ? headingSpacing : isTitle ? 14 : isCenteredBody ? 8 : 10,
+    spacingBefore: 0,
+    spacingAfter: isHeading ? headingSpacing : isTitle ? 4 : isCenteredBody ? 8 : 10,
   };
 }
 
@@ -616,9 +616,9 @@ export default function Home() {
                     fontWeight,
                     textAlign: isTitle || isCenteredBody ? 'center' : 'left',
                     margin: isTitle
-                      ? '10px 0 14px'
+                      ? '10px 0 4px'
                       : isHeading
-                        ? `${headingVerticalSpacing} 0`
+                        ? `0 0 ${headingVerticalSpacing}`
                         : '0 0 10px',
                   }}
                 >
