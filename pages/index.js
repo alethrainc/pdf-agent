@@ -69,7 +69,7 @@ async function loadLogoDataUrl(url) {
   return { dataUrl, ...size };
 }
 
-function getBlockStyle(blockRole, styleOptions) {
+function getBlockStyle(blockRole, styleOptions, nextBlockRole = null, previousBlockRole = null) {
   const fontScale = (Number(styleOptions.fontScale) || DEFAULT_STYLE_OPTIONS.fontScale) / 100;
   const isTitle = blockRole === 'title';
   const isHeading = blockRole === 'heading';
@@ -79,9 +79,12 @@ function getBlockStyle(blockRole, styleOptions) {
     : isHeading
       ? Number(styleOptions.headingFontSize) || DEFAULT_STYLE_OPTIONS.headingFontSize
       : Number(styleOptions.bodyFontSize) || DEFAULT_STYLE_OPTIONS.bodyFontSize;
-  const fontSize = Math.max(8, Number((baseFontSize * fontScale).toFixed(2)));
+  const centeredBodyBoost = isCenteredBody && previousBlockRole === 'title' ? 2 : 0;
+  const fontSize = Math.max(8, Number(((baseFontSize + centeredBodyBoost) * fontScale).toFixed(2)));
 
   const headingSpacing = Math.max(8, Number((fontSize * 0.55).toFixed(2)));
+
+  const titleSpacingAfter = nextBlockRole === 'centeredBody' ? -6 : 14;
 
   return {
     fontSize,
@@ -91,7 +94,7 @@ function getBlockStyle(blockRole, styleOptions) {
       : isHeading ? 'normal' : 'normal',
     align: isTitle || isCenteredBody ? 'center' : 'left',
     spacingBefore: isHeading ? headingSpacing : 0,
-    spacingAfter: isHeading ? headingSpacing : isTitle ? 14 : isCenteredBody ? 8 : 10,
+    spacingAfter: isHeading ? headingSpacing : isTitle ? titleSpacingAfter : isCenteredBody ? 8 : 10,
   };
 }
 
@@ -328,10 +331,12 @@ export default function Home() {
         const confidentialLabel = (confidentialText || DEFAULT_CONFIDENTIAL_TEXT).trim();
 
         const preparedBlocks = extractedBlocks
-          .map((block) => {
+          .map((block, index, collection) => {
             const text = block?.text?.trim();
             if (!text) return null;
-            const style = getBlockStyle(block.role, styleOptions);
+            const nextBlockRole = collection[index + 1]?.role || null;
+            const previousBlockRole = collection[index - 1]?.role || null;
+            const style = getBlockStyle(block.role, styleOptions, nextBlockRole, previousBlockRole);
             pdf.setFont('helvetica', style.fontStyle);
             pdf.setFontSize(style.fontSize);
             const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.9 : textWidth);
@@ -593,13 +598,16 @@ export default function Home() {
             >
               {confidentialText || DEFAULT_CONFIDENTIAL_TEXT}
             </p>
-            {(codedDocument?.blocks || []).map((block, index) => {
+            {(codedDocument?.blocks || []).map((block, index, collection) => {
               const text = block?.text?.trim();
               if (!text) return null;
               const isTitle = block.role === 'title';
               const isHeading = block.role === 'heading';
               const isCenteredBody = block.role === 'centeredBody';
-              const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : styleOptions.bodyFontSize;
+              const nextBlockRole = collection[index + 1]?.role || null;
+              const previousBlockRole = collection[index - 1]?.role || null;
+              const centeredBodyBoost = isCenteredBody && previousBlockRole === 'title' ? 2 : 0;
+              const baseFontSize = isTitle ? styleOptions.titleFontSize : isHeading ? styleOptions.headingFontSize : (styleOptions.bodyFontSize + centeredBodyBoost);
               const fontSize = Number((baseFontSize * ((styleOptions.fontScale || DEFAULT_STYLE_OPTIONS.fontScale) / 100)).toFixed(2));
               const fontWeight = isTitle
                 ? (styleOptions.titleFontWeight === 'thin' ? 200 : 500)
@@ -607,6 +615,7 @@ export default function Home() {
                   ? 400
                   : getBodyPreviewWeight(styleOptions.bodyFontWeight);
               const headingVerticalSpacing = `${Math.max(8, Number((fontSize * 0.55).toFixed(2)))}px`;
+              const titleMarginBottom = nextBlockRole === 'centeredBody' ? '-6px' : '14px';
               return (
                 <p
                   key={`${text}-${index}`}
@@ -616,7 +625,7 @@ export default function Home() {
                     fontWeight,
                     textAlign: isTitle || isCenteredBody ? 'center' : 'left',
                     margin: isTitle
-                      ? '10px 0 14px'
+                      ? `10px 0 ${titleMarginBottom}`
                       : isHeading
                         ? `${headingVerticalSpacing} 0`
                         : '0 0 10px',
