@@ -1,5 +1,13 @@
 import { inflateRawSync } from 'zlib';
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '15mb',
+    },
+  },
+};
+
 const SUPPORTED_EXTENSIONS = new Set(['docx', 'txt', 'rtf', 'html', 'htm']);
 
 function getExtension(fileName = '') {

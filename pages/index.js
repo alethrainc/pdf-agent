@@ -352,6 +352,17 @@ async function fileToBase64(file) {
   return btoa(binary);
 }
 
+async function parseApiResponse(response) {
+  const rawBody = await response.text();
+  if (!rawBody) return {};
+
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    return { error: rawBody };
+  }
+}
+
 export default function Home() {
   const [fileName, setFileName] = useState('');
   const [uploads, setUploads] = useState([]);
@@ -394,12 +405,12 @@ export default function Home() {
         body: JSON.stringify({ uploadedFile, previewOnly: true }),
       });
 
+      const payload = await parseApiResponse(response);
+
       if (!response.ok) {
-        const payload = await response.json();
         throw new Error(payload.error || 'Unable to build live preview.');
       }
 
-      const payload = await response.json();
       if (payload?.codedDocument?.blocks?.length) {
         setCodedDocument(payload.codedDocument);
         setStatus('Preview ready. If this looks good, click Generate PDF to export this exact coded layout.');
@@ -545,12 +556,11 @@ export default function Home() {
           }),
         });
 
+        const payload = await parseApiResponse(response);
+
         if (!response.ok) {
-          const payload = await response.json();
           throw new Error(payload.error || `Unable to extract content from ${activeUpload.name}.`);
         }
-
-        const payload = await response.json();
         const extractedBlocks = payload?.codedDocument?.blocks || codedDocument?.blocks || [];
 
         const pdf = createPdfDocument({
