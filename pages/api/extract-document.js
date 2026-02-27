@@ -1,5 +1,13 @@
 import { inflateRawSync } from 'zlib';
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '12mb',
+    },
+  },
+};
+
 const SUPPORTED_EXTENSIONS = new Set(['docx', 'txt', 'rtf', 'html', 'htm']);
 
 function getExtension(fileName = '') {
@@ -116,9 +124,12 @@ function extractZipEntry(buffer, targetName) {
 }
 
 function extractParagraphText(paragraphXml) {
-  const runs = paragraphXml.match(/<w:t\b[^>]*>[\s\S]*?<\/w:t>/g) || [];
-  const combined = runs
-    .map((run) => run.replace(/<w:t\b[^>]*>|<\/w:t>/g, ''))
+  const segments = paragraphXml.match(/<w:t\b[^>]*>[\s\S]*?<\/w:t>|<w:br\b[^>]*\/>/g) || [];
+  const combined = segments
+    .map((segment) => {
+      if (/^<w:br\b/i.test(segment)) return '\n';
+      return segment.replace(/<w:t\b[^>]*>|<\/w:t>/g, '');
+    })
     .join('')
     .trim();
 
@@ -158,14 +169,60 @@ function inferBlockRole(paragraph, index) {
 
 function textToCodedDocument(text) {
   const paragraphs = sanitizeText(text).split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
-  const blocks = paragraphs.map((paragraph, index) => ({
-    role: inferBlockRole(paragraph, index),
-    text: paragraph,
-  }));
+  const blocks = paragraphs.map((paragraph, index) => {
+    const role = inferBlockRole(paragraph, index);
+    const normalizedText = role === 'title' ? paragraph.replace(/\s*\n+\s*/g, ' ').trim() : paragraph;
+    return {
+      role,
+      text: normalizedText,
+    };
+  });
 
   if (!blocks.length) return { blocks: [{ role: 'body', text: ' ' }] };
-  return { blocks };
+  return { blocks: applyAlethraLayoutHeuristics(blocks) };
 }
+
+function normalizeAlethraToken(text = '') {
+  return text.toLowerCase().replace(/[^a-z]/g, '');
+}
+
+function isAlethraOnlyLine(text = '') {
+  return normalizeAlethraToken(text) === 'alethra';
+}
+
+function applyAlethraLayoutHeuristics(blocks) {
+  const normalized = blocks
+    .map((block) => ({ ...block, text: block.text.trim() }))
+    .filter((block) => block.text);
+
+  if (!normalized.length) return [{ role: 'body', text: ' ' }];
+
+  let remapped = normalized;
+  const firstBlock = normalized[0];
+  const secondBlock = normalized[1];
+
+  if (isAlethraOnlyLine(firstBlock?.text) && secondBlock?.text) {
+    remapped = [{ role: 'title', text: `${firstBlock.text} ${secondBlock.text}` }, ...normalized.slice(2)];
+  } else {
+    const firstBlockLines = (firstBlock?.text || '').split(/\n+/).map((line) => line.trim()).filter(Boolean);
+    if (firstBlockLines.length >= 2 && isAlethraOnlyLine(firstBlockLines[0])) {
+      remapped = [
+        { ...firstBlock, role: 'title', text: `${firstBlockLines[0]} ${firstBlockLines.slice(1).join(' ')}` },
+        ...normalized.slice(1),
+      ];
+    }
+  }
+
+  return remapped.map((block, index) => {
+    const likelyFrontMatter = index <= 3;
+    const isConfidentialNotice = /\bconfidential\b/i.test(block.text);
+    if (block.role !== 'title' && likelyFrontMatter && isConfidentialNotice) {
+      return { ...block, role: 'centeredBody' };
+    }
+    return block;
+  });
+}
+
 
 function extractText(uploadedFile) {
   const rawBuffer = Buffer.from(uploadedFile.data, 'base64');
