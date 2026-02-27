@@ -194,12 +194,12 @@ function applyAlethraLayoutHeuristics(blocks) {
   const secondBlock = normalized[1];
 
   if (isAlethraOnlyLine(firstBlock?.text) && secondBlock?.text) {
-    remapped = [{ role: 'title', text: `${firstBlock.text}\n${secondBlock.text}` }, ...normalized.slice(2)];
+    remapped = [{ role: 'title', text: `${firstBlock.text} ${secondBlock.text}` }, ...normalized.slice(2)];
   } else {
     const firstBlockLines = (firstBlock?.text || '').split(/\n+/).map((line) => line.trim()).filter(Boolean);
     if (firstBlockLines.length >= 2 && isAlethraOnlyLine(firstBlockLines[0])) {
       remapped = [
-        { ...firstBlock, role: 'title', text: `${firstBlockLines[0]}\n${firstBlockLines.slice(1).join(' ')}` },
+        { ...firstBlock, role: 'title', text: `${firstBlockLines[0]} ${firstBlockLines.slice(1).join(' ')}` },
         ...normalized.slice(1),
       ];
     }
