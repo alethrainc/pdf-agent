@@ -10,9 +10,21 @@ const DEFAULT_STYLE_OPTIONS = {
   titleFontSize: 30,
   headingFontSize: 17,
   bodyFontSize: 11,
-  titleFontWeight: 'thin',
-  bodyFontWeight: 'light',
+  titleFontWeight: 'super-thin',
+  headingFontWeight: 'normal',
+  bodyFontWeight: 'normal',
 };
+
+const FONT_WEIGHT_TEXT_COLOR = {
+  normal: [0, 0, 0],
+  light: [45, 45, 45],
+  'extra-light': [80, 80, 80],
+  'super-thin': [110, 110, 110],
+};
+
+function getWeightTextColor(weight) {
+  return FONT_WEIGHT_TEXT_COLOR[weight] || FONT_WEIGHT_TEXT_COLOR.normal;
+}
 
 
 
@@ -86,12 +98,17 @@ function getBlockStyle(blockRole, styleOptions, nextBlockRole = null, previousBl
 
   const titleSpacingAfter = nextBlockRole === 'centeredBody' ? -6 : 14;
 
+  const blockFontWeight = isTitle
+    ? styleOptions.titleFontWeight
+    : isHeading
+      ? styleOptions.headingFontWeight
+      : styleOptions.bodyFontWeight;
+
   return {
     fontSize,
     lineHeight: isTitle ? fontSize * 1.3 : isHeading ? fontSize * 1.42 : isCenteredBody ? fontSize * 1.35 : fontSize * 1.58,
-    fontStyle: isTitle
-      ? styleOptions.titleFontWeight === 'normal' ? 'bold' : 'normal'
-      : isHeading ? 'normal' : 'normal',
+    fontStyle: 'normal',
+    textColor: getWeightTextColor(blockFontWeight),
     align: isTitle || isCenteredBody ? 'center' : 'left',
     spacingBefore: isHeading ? headingSpacing : 0,
     spacingAfter: isHeading ? headingSpacing : isTitle ? titleSpacingAfter : isCenteredBody ? 8 : 10,
@@ -238,6 +255,7 @@ function createPdfDocument({
       yStart: contentTop,
       align: 'left',
       fontStyle: 'normal',
+      textColor: getWeightTextColor(styleOptions.bodyFontWeight),
       fontSize: scaledBodySize,
       lineHeight: scaledBodySize * 1.58,
     });
@@ -271,7 +289,7 @@ function createPdfDocument({
     for (const block of pages[pageIndex]) {
       pdf.setFont('helvetica', block.fontStyle);
       pdf.setFontSize(block.fontSize);
-      pdf.setTextColor(0, 0, 0);
+      pdf.setTextColor(...block.textColor);
 
       let lineY = block.yStart;
       for (const line of block.lines) {
@@ -623,8 +641,22 @@ export default function Home() {
               value={styleOptions.titleFontWeight}
               onChange={(event) => setStyleOptions((prev) => ({ ...prev, titleFontWeight: event.target.value }))}
             >
-              <option value="thin">Super thin</option>
               <option value="normal">Normal</option>
+              <option value="light">Light</option>
+              <option value="extra-light">Extra-light</option>
+              <option value="super-thin">Super-thin</option>
+            </select>
+
+            <label htmlFor="headingFontWeight">Heading weight</label>
+            <select
+              id="headingFontWeight"
+              value={styleOptions.headingFontWeight}
+              onChange={(event) => setStyleOptions((prev) => ({ ...prev, headingFontWeight: event.target.value }))}
+            >
+              <option value="normal">Normal</option>
+              <option value="light">Light</option>
+              <option value="extra-light">Extra-light</option>
+              <option value="super-thin">Super-thin</option>
             </select>
 
             <label htmlFor="bodyFontWeight">Body weight</label>
@@ -633,9 +665,10 @@ export default function Home() {
               value={styleOptions.bodyFontWeight}
               onChange={(event) => setStyleOptions((prev) => ({ ...prev, bodyFontWeight: event.target.value }))}
             >
+              <option value="normal">Normal</option>
               <option value="light">Light</option>
               <option value="extra-light">Extra-light</option>
-              <option value="super-light">Super-light</option>
+              <option value="super-thin">Super-thin</option>
             </select>
 
             <label htmlFor="fontScale">Overall text scale (%)</label>
