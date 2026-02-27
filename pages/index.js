@@ -25,6 +25,10 @@ const CUSTOM_WEIGHT_FONT_LABELS = {
   light: 'Light',
 };
 
+function getFontDisplayName(fontUrl = '') {
+  return fontUrl.split('/').pop() || fontUrl;
+}
+
 function getWeightPreset(weight) {
   return FONT_WEIGHT_PRESETS[weight] || FONT_WEIGHT_PRESETS.normal;
 }
@@ -368,6 +372,25 @@ async function fileToBase64(file) {
   return btoa(binary);
 }
 
+async function fontUrlToBase64(fontUrl) {
+  const response = await fetch(fontUrl);
+  if (!response.ok) {
+    throw new Error(`Unable to load font file: ${getFontDisplayName(fontUrl)}.`);
+  }
+
+  const buffer = await response.arrayBuffer();
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunk = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunk) {
+    const slice = bytes.subarray(index, index + chunk);
+    binary += String.fromCharCode(...slice);
+  }
+
+  return btoa(binary);
+}
+
 export default function Home() {
   const [fileName, setFileName] = useState('');
   const [uploads, setUploads] = useState([]);
@@ -391,6 +414,8 @@ export default function Home() {
   });
   const [styleOptions, setStyleOptions] = useState(DEFAULT_STYLE_OPTIONS);
   const [customWeightFonts, setCustomWeightFonts] = useState({});
+  const [availableFonts, setAvailableFonts] = useState([]);
+  const [selectedWeightFonts, setSelectedWeightFonts] = useState({});
 
   async function buildPreviewFromFile(file) {
     if (!file) return;
@@ -505,8 +530,36 @@ export default function Home() {
     if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
   }, [pdfPreviewUrl]);
 
-  async function handleCustomWeightFontChange(weight, file) {
-    if (!file) {
+  useEffect(() => {
+    let active = true;
+
+    async function loadFonts() {
+      try {
+        const response = await fetch('/api/fonts');
+        const payload = await readJsonResponse(response);
+        if (!response.ok) {
+          throw new Error(payload.error || 'Unable to load fonts from /public/fonts.');
+        }
+
+        if (active) {
+          setAvailableFonts(payload.fonts || []);
+        }
+      } catch (error) {
+        if (active) {
+          setStatus(error.message || 'Unable to load fonts from /public/fonts.');
+        }
+      }
+    }
+
+    loadFonts();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleCustomWeightFontChange(weight, fontUrl) {
+    if (!fontUrl) {
+      setSelectedWeightFonts((prev) => ({ ...prev, [weight]: '' }));
       setCustomWeightFonts((prev) => {
         const next = { ...prev };
         delete next[weight];
@@ -515,14 +568,18 @@ export default function Home() {
       return;
     }
 
-    const base64 = await fileToBase64(file);
+    const base64 = await fontUrlToBase64(fontUrl);
     const safeWeight = String(weight || 'custom').replace(/[^a-z0-9]/gi, '');
+    const fontFileName = getFontDisplayName(fontUrl);
+    const safeFileRoot = fontFileName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9]/gi, '');
+
+    setSelectedWeightFonts((prev) => ({ ...prev, [weight]: fontUrl }));
 
     setCustomWeightFonts((prev) => ({
       ...prev,
       [weight]: {
-        fileName: `${safeWeight}-${Date.now()}.ttf`,
-        family: `Custom${safeWeight}${Date.now()}`,
+        fileName: fontFileName,
+        family: `Custom${safeWeight}${safeFileRoot}${Date.now()}`,
         base64,
       },
     }));
@@ -728,18 +785,22 @@ export default function Home() {
               <option value="light">Light</option>
             </select>
 
-            <p className={styles.weightHint}>Upload a Normal and Light TTF below. Disclaimers/footer will use the Light font when provided.</p>
+            <p className={styles.weightHint}>Drop your .ttf/.otf files into <code>public/fonts</code>, then select which file to use for Normal and Light.</p>
 
             <div className={styles.customFontGrid}>
               {Object.entries(CUSTOM_WEIGHT_FONT_LABELS).map(([weightKey, label]) => (
                 <div key={weightKey} className={styles.customFontRow}>
-                  <label htmlFor={`custom-font-${weightKey}`}>{label} TTF</label>
-                  <input
+                  <label htmlFor={`custom-font-${weightKey}`}>{label} font</label>
+                  <select
                     id={`custom-font-${weightKey}`}
-                    type="file"
-                    accept=".ttf"
-                    onChange={(event) => handleCustomWeightFontChange(weightKey, event.target.files?.[0])}
-                  />
+                    value={selectedWeightFonts[weightKey] || ''}
+                    onChange={(event) => handleCustomWeightFontChange(weightKey, event.target.value)}
+                  >
+                    <option value="">Default ({label})</option>
+                    {availableFonts.map((font) => (
+                      <option key={font.url} value={font.url}>{font.name}</option>
+                    ))}
+                  </select>
                 </div>
               ))}
             </div>
