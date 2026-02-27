@@ -7,9 +7,9 @@ const DEFAULT_FOOTER_SUB = 'Confidential – Not for distribution without writte
 const DEFAULT_CONFIDENTIAL_TEXT = 'Confidential, Restricted Distribution\nVersion 1.0 – March 2026';
 const DEFAULT_STYLE_OPTIONS = {
   fontScale: 70,
-  titleFontSize: 30,
+  titleFontSize: 29,
   headingFontSize: 17,
-  bodyFontSize: 11,
+  bodyFontSize: 15,
   titleFontWeight: 'normal',
   headingFontWeight: 'light',
   bodyFontWeight: 'light',
