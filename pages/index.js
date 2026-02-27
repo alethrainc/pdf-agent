@@ -22,8 +22,28 @@ const FONT_WEIGHT_PRESETS = {
   'super-thin': { fontFamily: 'times', fontStyle: 'italic' },
 };
 
+const CUSTOM_WEIGHT_FONT_LABELS = {
+  normal: 'Normal (400)',
+  light: 'Light (300-350)',
+  'extra-light': 'Extra-light (200-300)',
+  'super-thin': 'Super-thin (100-200)',
+};
+
 function getWeightPreset(weight) {
   return FONT_WEIGHT_PRESETS[weight] || FONT_WEIGHT_PRESETS.normal;
+}
+
+function applyCustomWeightFonts(pdf, customWeightFonts = {}) {
+  const activePresets = { ...FONT_WEIGHT_PRESETS };
+
+  for (const [weight, font] of Object.entries(customWeightFonts)) {
+    if (!font?.base64 || !font?.family) continue;
+    pdf.addFileToVFS(font.fileName, font.base64);
+    pdf.addFont(font.fileName, font.family, 'normal');
+    activePresets[weight] = { fontFamily: font.family, fontStyle: 'normal' };
+  }
+
+  return activePresets;
 }
 
 function loadScriptOnce(src, globalName) {
@@ -193,6 +213,7 @@ function createPdfDocument({
   jsPDF,
   blocks,
   styleOptions,
+  customWeightFonts,
   logoAsset,
   footerMain,
   footerSub,
@@ -203,6 +224,8 @@ function createPdfDocument({
     unit: 'pt',
     format: 'letter',
   });
+
+  const activeWeightPresets = applyCustomWeightFonts(pdf, customWeightFonts);
 
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
@@ -222,10 +245,12 @@ function createPdfDocument({
       const nextBlockRole = collection[index + 1]?.role || null;
       const previousBlockRole = collection[index - 1]?.role || null;
       const style = getBlockStyle(block.role, styleOptions, nextBlockRole, previousBlockRole);
-      pdf.setFont(style.fontFamily, style.fontStyle);
-      pdf.setFontSize(style.fontSize);
-      const lines = formatBlockLinesForPdf(pdf, text, style.align === 'center' ? textWidth * 0.9 : textWidth);
-      return { ...style, lines };
+      const resolvedPreset = activeWeightPresets[style.fontWeight] || getWeightPreset(style.fontWeight);
+      const resolvedStyle = { ...style, ...resolvedPreset };
+      pdf.setFont(resolvedStyle.fontFamily, resolvedStyle.fontStyle);
+      pdf.setFontSize(resolvedStyle.fontSize);
+      const lines = formatBlockLinesForPdf(pdf, text, resolvedStyle.align === 'center' ? textWidth * 0.9 : textWidth);
+      return { ...resolvedStyle, lines };
     })
     .filter(Boolean);
 
@@ -253,7 +278,7 @@ function createPdfDocument({
       lines: [' '],
       yStart: contentTop,
       align: 'left',
-      ...getWeightPreset(styleOptions.bodyFontWeight),
+      ...(activeWeightPresets[styleOptions.bodyFontWeight] || getWeightPreset(styleOptions.bodyFontWeight)),
       fontWeight: styleOptions.bodyFontWeight,
       fontSize: scaledBodySize,
       lineHeight: scaledBodySize * 1.58,
@@ -351,6 +376,7 @@ export default function Home() {
     ],
   });
   const [styleOptions, setStyleOptions] = useState(DEFAULT_STYLE_OPTIONS);
+  const [customWeightFonts, setCustomWeightFonts] = useState({});
 
   async function buildPreviewFromFile(file) {
     if (!file) return;
@@ -427,6 +453,7 @@ export default function Home() {
           jsPDF,
           blocks: codedDocument?.blocks || [],
           styleOptions,
+          customWeightFonts,
           logoAsset,
           footerMain,
           footerSub,
@@ -459,11 +486,34 @@ export default function Home() {
     return () => {
       mounted = false;
     };
-  }, [codedDocument, styleOptions, logoUrl, footerMain, footerSub, confidentialText]);
+  }, [codedDocument, styleOptions, customWeightFonts, logoUrl, footerMain, footerSub, confidentialText]);
 
   useEffect(() => () => {
     if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
   }, [pdfPreviewUrl]);
+
+  async function handleCustomWeightFontChange(weight, file) {
+    if (!file) {
+      setCustomWeightFonts((prev) => {
+        const next = { ...prev };
+        delete next[weight];
+        return next;
+      });
+      return;
+    }
+
+    const base64 = await fileToBase64(file);
+    const safeWeight = String(weight || 'custom').replace(/[^a-z0-9]/gi, '');
+
+    setCustomWeightFonts((prev) => ({
+      ...prev,
+      [weight]: {
+        fileName: `${safeWeight}-${Date.now()}.ttf`,
+        family: `Custom${safeWeight}${Date.now()}`,
+        base64,
+      },
+    }));
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -509,6 +559,7 @@ export default function Home() {
           jsPDF,
           blocks: extractedBlocks,
           styleOptions,
+          customWeightFonts,
           logoAsset,
           footerMain,
           footerSub,
@@ -671,7 +722,21 @@ export default function Home() {
               <option value="super-thin">Super-thin</option>
             </select>
 
-            <p className={styles.weightHint}>PDF engines only include a few built-in font families. “Light” and thinner options switch to slimmer built-in faces for a visibly thinner look.</p>
+            <p className={styles.weightHint}>Want real 100/200/300 weight output? Upload your own TTF for each weight below. Those files are embedded into the generated PDF.</p>
+
+            <div className={styles.customFontGrid}>
+              {Object.entries(CUSTOM_WEIGHT_FONT_LABELS).map(([weightKey, label]) => (
+                <div key={weightKey} className={styles.customFontRow}>
+                  <label htmlFor={`custom-font-${weightKey}`}>{label} TTF</label>
+                  <input
+                    id={`custom-font-${weightKey}`}
+                    type="file"
+                    accept=".ttf"
+                    onChange={(event) => handleCustomWeightFontChange(weightKey, event.target.files?.[0])}
+                  />
+                </div>
+              ))}
+            </div>
 
             <label htmlFor="fontScale">Overall text scale (%)</label>
             <input

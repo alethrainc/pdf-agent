@@ -145,3 +145,14 @@
   line-height: 1.35;
   color: #5f6880;
 }
+
+.customFontGrid {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.customFontRow {
+  display: grid;
+  gap: 6px;
+}
