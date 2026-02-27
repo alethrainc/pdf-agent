@@ -2,7 +2,7 @@
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: #f4f6fb;
+  background: #fff4f4;
   padding: 24px;
   font-family: Inter, Arial, sans-serif;
 }
@@ -11,15 +11,15 @@
   width: 100%;
   max-width: 980px;
   background: #fff;
-  border: 1px solid #e6eaf3;
+  border: 1px solid #f1dddd;
   border-radius: 18px;
-  box-shadow: 0 12px 34px rgba(7, 17, 43, 0.08);
+  box-shadow: 0 12px 34px rgba(84, 18, 18, 0.08);
   padding: 28px;
 }
 
 .subtitle {
   margin-top: 8px;
-  color: #5f6880;
+  color: #7a4f4f;
 }
 
 .form {
@@ -30,17 +30,17 @@
 
 .uploadLabel {
   font-weight: 600;
-  color: #2c3551;
+  color: #5a2525;
 }
 
 .uploadInput {
-  max-width: 280px;
+  display: none;
 }
 
 .form input,
 .form textarea,
 .form select {
-  border: 1px solid #d4d8e5;
+  border: 1px solid #e7cfcf;
   border-radius: 10px;
   padding: 11px 12px;
   font-size: 0.94rem;
@@ -53,9 +53,9 @@
 }
 
 .dropZone {
-  border: 2px dashed #bac6e9;
-  background: #f8faff;
-  color: #33406f;
+  border: 2px dashed #e3b5b5;
+  background: #fff7f7;
+  color: #6b2e2e;
   border-radius: 12px;
   padding: 34px 20px;
   text-align: center;
@@ -65,22 +65,22 @@
 }
 
 .dropZoneActive {
-  border-color: #3055ee;
-  background: #eef3ff;
+  border-color: #d13b3b;
+  background: #ffecec;
 }
 
 .settingsPanel {
   margin-top: 4px;
   padding: 12px;
-  border: 1px solid #e2e7f2;
+  border: 1px solid #f0dede;
   border-radius: 12px;
-  background: #fafbff;
+  background: #fff8f8;
 }
 
 .settingsPanel summary {
   cursor: pointer;
   font-weight: 600;
-  color: #2f3a58;
+  color: #5a2d2d;
   margin-bottom: 10px;
 }
 
@@ -90,7 +90,7 @@
 }
 
 .form button {
-  background: #3055ee;
+  background: #d13b3b;
   color: white;
   border: 0;
   border-radius: 10px;
@@ -105,13 +105,13 @@
 }
 
 .previewCard {
-  border-top: 1px solid #e8ebf3;
+  border-top: 1px solid #f1dfdf;
   padding-top: 18px;
 }
 
 .previewLabel {
   margin: 0 0 10px;
-  color: #556080;
+  color: #7b4b4b;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -123,7 +123,7 @@
 }
 
 .previewPage {
-  border: 1px solid #dbe2f1;
+  border: 1px solid #ecd6d6;
   border-radius: 12px;
   background: #fff;
   overflow: hidden;
@@ -133,9 +133,9 @@
 .previewTitle {
   margin: 0;
   padding: 10px 12px;
-  border-bottom: 1px solid #edf1f8;
-  background: #fafcff;
-  color: #364266;
+  border-bottom: 1px solid #f3e2e2;
+  background: #fff8f8;
+  color: #653333;
   font-size: 0.9rem;
   font-weight: 600;
 }
@@ -149,7 +149,7 @@
 .previewUnavailable {
   margin: 0;
   padding: 16px;
-  color: #6f7687;
+  color: #7f5d5d;
   font-size: 0.9rem;
 }
 
@@ -157,7 +157,7 @@
   margin: 2px 0 6px;
   font-size: 0.82rem;
   line-height: 1.35;
-  color: #5f6880;
+  color: #7a4f4f;
 }
 
 .customFontGrid {
@@ -175,5 +175,5 @@
   margin-top: 12px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #eef4ff;
+  background: #ffe9e9;
 }

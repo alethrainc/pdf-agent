@@ -11,7 +11,7 @@ const DEFAULT_STYLE_OPTIONS = {
   headingFontSize: 17,
   bodyFontSize: 15,
   titleFontWeight: 'normal',
-  headingFontWeight: 'light',
+  headingFontWeight: 'normal',
   bodyFontWeight: 'light',
 };
 
@@ -421,6 +421,7 @@ export default function Home() {
   const [availableFonts, setAvailableFonts] = useState([]);
   const [selectedWeightFonts, setSelectedWeightFonts] = useState({});
   const selectedWeightFontsRef = useRef(selectedWeightFonts);
+  const fileInputRef = useRef(null);
 
   async function buildPreviewsFromFiles(uploadItems) {
     if (!uploadItems.length) {
@@ -723,13 +724,13 @@ export default function Home() {
   return (
     <main className={styles.main}>
       <section className={styles.card}>
-        <h1>Document to PDF</h1>
+        <h1>Document to formatted Executive Letter</h1>
         <p className={styles.subtitle}>Drag and drop your docs, review every preview, then export.</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <label htmlFor="upload" className={styles.uploadLabel}>Upload up to 10 files</label>
           <input
             id="upload"
+            ref={fileInputRef}
             className={styles.uploadInput}
             type="file"
             accept=".docx,.txt,.rtf,.html,.htm"
@@ -739,6 +740,15 @@ export default function Home() {
 
           <div
             className={`${styles.dropZone} ${dragActive ? styles.dropZoneActive : ''}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
             onDragOver={(event) => {
               event.preventDefault();
               setDragActive(true);
@@ -746,7 +756,9 @@ export default function Home() {
             onDragLeave={() => setDragActive(false)}
             onDrop={handleDrop}
           >
-            {uploads.length ? `Ready: ${uploads.length} file${uploads.length === 1 ? '' : 's'}` : 'Drag & drop files here'}
+            {uploads.length
+              ? `Ready: ${uploads.length} file${uploads.length === 1 ? '' : 's'}`
+              : 'Drag & drop files here, or click to select files'}
           </div>
 
           <details className={styles.settingsPanel}>
